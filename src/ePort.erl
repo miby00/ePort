@@ -244,15 +244,6 @@ handle_info({ssl, Socket, ?Ping}, State = #state{socket = Socket}) ->
     doSendPacketSSL(Socket, pong),
     ssl:setopts(Socket,[{active,once}]),
     {noreply, State};
-handle_info({tcp, Socket, ?Ping}, State = #state{socket = Socket,
-                                                 ssl    = false}) ->
-    doSendPacket(Socket, pong),
-    inet:setopts(Socket,[{active,once}]),
-    {noreply, State};
-handle_info({ssl, Socket, ?Ping}, State = #state{socket = Socket}) ->
-    doSendPacketSSL(Socket, pong),
-    ssl:setopts(Socket,[{active,once}]),
-    {noreply, State};
 handle_info({tcp, Socket, ?Pong}, State = #state{socket   = Socket,
                                                  timerRef = Ref,
                                                  ssl      = false,
