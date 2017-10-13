@@ -36,7 +36,14 @@
 -define(Ping,    <<131,100,0,4,112,105,110,103>>).
 -define(Pong,    <<131,100,0,4,112,111,110,103>>).
 
--record(state, {socket, module, client = false, elPid, timerRef, ssl = false}).
+-record(state, {socket,
+                module,
+                client = false,
+                elPid,
+                timerRef,
+                ssl = false,
+                shutting_down = false
+               }).
 
 -import(eLog, [log/7]).
 
@@ -178,6 +185,8 @@ init([Module, Host, Port, {true, SSLOptions}]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
+handle_call(Msg, _From, State = #state{shutting_down = true}) ->
+    handleShutdown(State);
 handle_call({call, Function, Args}, From, State = #state{socket = Socket,
                                                          module = Module,
                                                          ssl    = false}) ->
@@ -205,6 +214,8 @@ handle_call(_Request, _From, State) ->
 %%                                  {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
+handle_cast(Msg, State = #state{shutting_down = true}) ->
+    handleShutdown(State);
 handle_cast({cast, Function, Args}, State = #state{socket = Socket,
                                                    module = Module,
                                                    ssl    = false}) ->
@@ -221,7 +232,7 @@ handle_cast({cast, Function, Args}, State = #state{socket = Socket,
 handle_cast({stop, Offender}, State = #state{module = Module}) ->
     log(debug, ?MODULE, stop, [State, self(), Offender],
         "Shutting down, stop received.", ?LINE, Module),
-    {stop, normal, State};
+    handleShutdown(State#state{shutting_down = true});
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -235,6 +246,15 @@ handle_cast(_Msg, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
+handle_info({rpc_result, Result, From}, State = #state{socket = Socket,
+                                                       ssl    = false}) ->
+    doSendPacket(Socket, {rpc_result, Result, From}),
+    {noreply, State};
+handle_info({rpc_result, Result, From}, State = #state{socket = Socket}) ->
+    doSendPacketSSL(Socket, {rpc_result, Result, From}),
+    {noreply, State};
+handle_info(Msg, State = #state{shutting_down = true}) ->
+    handleShutdown(State);
 handle_info({tcp, Socket, ?Ping}, State = #state{socket = Socket,
                                                  ssl    = false}) ->
     doSendPacket(Socket, pong),
@@ -296,13 +316,6 @@ handle_info({ssl_closed, Socket}, State = #state{socket = Socket,
     log(debug, ?MODULE, handle_info, [State, self()],
         "Shutting down...received tcp_closed.", ?LINE, Module),
     {stop, normal, State};
-handle_info({rpc_result, Result, From}, State = #state{socket = Socket,
-                                                       ssl    = false}) ->
-    doSendPacket(Socket, {rpc_result, Result, From}),
-    {noreply, State};
-handle_info({rpc_result, Result, From}, State = #state{socket = Socket}) ->
-    doSendPacketSSL(Socket, {rpc_result, Result, From}),
-    {noreply, State};
 handle_info(timeout, State = #state{socket = Socket,
                                     client = true,
                                     ssl    = false,
@@ -338,6 +351,10 @@ handle_info(lostConnection, State = #state{module = Module}) ->
     log(error, ?MODULE, handle_info, [State, self()],
         "Lost connection signal received, shutting down...", ?LINE, Module),
     {stop, normal, State};
+handle_info({'DOWN', _MonitorRef,process,_Pid,_}, State) ->
+    %% No action needed since monitors are removed automatically upon
+    %% process termination.
+    {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -406,9 +423,9 @@ code_change(_OldVsn, State, _Extra) ->
 handlePacket(Pid, Module, Data) ->
     case binary_to_term(Data) of
         {rpc, Function, Args, From} when is_atom(Function) ->
-            spawn(?MODULE, rpcCall, [Pid, From, Module, Function, Args]);
+            spawn_monitor(?MODULE, rpcCall, [Pid, From, Module, Function, Args]);
         {rpc, Function, Args} when is_atom(Function) ->
-            spawn(?MODULE, rpcCast, [Pid, Module, Function, Args]);
+            spawn_monitor(?MODULE, rpcCast, [Pid, Module, Function, Args]);
         {rpc_result, Result, From} ->
             gen_server:reply(From, Result);
         _ ->
@@ -451,3 +468,8 @@ cancelTimer(Ref) ->
     %% Recieved pong, cancel timer.
     erlang:cancel_timer(Ref).
 
+handleShutdown(State) ->
+    case erlang:process_info(self(), [monitors]) of
+        [{monitors, []}] -> {stop, normal, State};
+        _                -> {noreply, State}
+    end.
