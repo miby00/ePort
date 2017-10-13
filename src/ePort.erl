@@ -67,7 +67,7 @@ start_link(ELPid, Module, Socket, SSLOptions) when is_pid(ELPid) ->
     gen_server:start_link(?MODULE, [ELPid, Module, Socket,
                                     {true, SSLOptions}], []);
 start_link(Module, Host, Port, SSLOptions) ->
-    gen_server:start_link(?MODULE, [Module, Host, Port, {true, SSLOptions}], []).
+    gen_server:start_link(?MODULE,[Module,Host,Port,{true,SSLOptions}], []).
 
 start(Module, Host, Port) ->
     gen_server:start(?MODULE, [Module, Host, Port, false], []).
@@ -138,7 +138,7 @@ init([ELPid, Module, Socket, SSLConfig]) when is_pid(ELPid) ->
                 ssl    = SSLConfig}};
 init([Module, Host, Port, false]) ->
     case catch gen_tcp:connect(Host, Port,
-                               [{packet, 4}, {active, once}, binary], 10000) of
+                               [{packet,4},{active,once},binary], 10000) of
         {ok, Socket} ->
             erlang:send_after(?Timeout, self(), timeout),
             {ok, #state{socket = Socket,
@@ -157,7 +157,9 @@ init([Module, Host, Port, {true, SSLOptions}]) ->
     application:start(ssl),
 
     case catch ssl:connect(Host, Port,
-                           [{packet, 4}, {active, once}, binary | SSLOptions], 10000) of
+                           [{packet, 4},
+                            {active, once},
+                            binary | SSLOptions], 10000) of
         {ok, Socket} ->
             erlang:send_after(?Timeout, self(), timeout),
             {ok, #state{socket = Socket,
@@ -423,9 +425,9 @@ code_change(_OldVsn, State, _Extra) ->
 handlePacket(Pid, Module, Data) ->
     case binary_to_term(Data) of
         {rpc, Function, Args, From} when is_atom(Function) ->
-            spawn_monitor(?MODULE, rpcCall, [Pid, From, Module, Function, Args]);
+            spawn_monitor(?MODULE,rpcCall,[Pid,From,Module,Function,Args]);
         {rpc, Function, Args} when is_atom(Function) ->
-            spawn_monitor(?MODULE, rpcCast, [Pid, Module, Function, Args]);
+            spawn_monitor(?MODULE,rpcCast,[Pid,Module,Function,Args]);
         {rpc_result, Result, From} ->
             gen_server:reply(From, Result);
         _ ->

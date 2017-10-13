@@ -59,7 +59,7 @@ start_link(Module, LPort, AllowedIps) ->
     gen_server:start_link(?MODULE, [Module, LPort, AllowedIps], []).
 
 start_link(Module, LPort, AllowedIps, SSLOptions) ->
-    gen_server:start_link(?MODULE, [Module, LPort, AllowedIps, SSLOptions], []).
+    gen_server:start_link(?MODULE,[Module,LPort,AllowedIps,SSLOptions],[]).
 
 updateIPAllowed(Pid, IPAllowed) ->
     gen_server:cast(Pid, {updateIPAllowed, IPAllowed}).
@@ -262,7 +262,8 @@ doAccept(LPid, Module, ListenSocket, AllowedIps, {true, SSLOptions}) ->
         {ok, Socket} ->
             case catch ssl:ssl_accept(Socket) of
                 ok ->
-                    startPort(LPid, Module, Socket, AllowedIps, {true, SSLOptions});
+                    startPort(LPid, Module, Socket, AllowedIps,
+                              {true, SSLOptions});
                 _RetValue ->
                     ok
             end;
