@@ -7,7 +7,7 @@ The normal rpc module uses node communication to reply with its result which is
 not possible to use if the two components that should be communicating is run by
 diffrent users.
 
-##How to connect
+## How to connect
 
 ### The listener side
 The listener side starts upp an ePortListener which listens for incoming
