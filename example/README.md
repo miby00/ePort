@@ -29,7 +29,8 @@ The example contains five different files that takes care of different things.
 | philosopherServer.erl | A gen server that keeps a state and provides values for the client protocol module |
 
 ## Explanation
-The example is started in example.erl, this is the flow that happens.
+The example is started in example.erl, this is an overview of the flow.
+
 1. The server need to be started, this is done with ```waiterServer:start_link() ```
 This is a gen_server which will in the init/1 function call ePortListener:start_link(waiter, 19000) in order
 to setup a listener that will accept connections.
