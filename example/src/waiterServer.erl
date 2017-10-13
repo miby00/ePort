@@ -113,7 +113,6 @@ init(_) ->
 handle_call({amountOfFoodEaten, Id}, _From,
             #{philosophers := Phils} = State) ->
     {EPortPid, Id} = lists:keyfind(Id, 2, Phils),
-    %% io:format("Waiter: getting food eaten from philosopher~p~n", [Id]),
     FoodEaten = ePort:call(EPortPid, amountOfFoodEaten, [Id]),
     {reply, FoodEaten, State};
 handle_call({getChopsticks, EPortPid}, _From,
