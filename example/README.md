@@ -18,8 +18,12 @@ example:start().
 ```
 
 ## Files
-* example.erl
-* waiter.erl
-* waiterServer.erl
-* philosopher.erl
-* philosopherServer.erl
+The example contains five different files that takes care of different things.
+
+| File                  | Function                                                                           |
+|-----------------------|------------------------------------------------------------------------------------|
+| example.erl           | "Wrapper" module to start the example in a convenient way                          |
+| waiter.erl            | The protocol module that the server provides                                       |
+| waiterServer.erl      | A gen server that keeps a state and provides values for the server protocol module |
+| philosopher.erl       | The protocol module that the client provides                                       |
+| philosopherServer.erl | A gen server that keeps a state and provides values for the client protocol module |
