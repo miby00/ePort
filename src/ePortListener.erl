@@ -15,6 +15,7 @@
          start_link/3,
          start_link/4,
          updateIPAllowed/2,
+         updateModulesAllowed/2
          updateListenPort/2,
          doAccept/5,
          disable/1,
