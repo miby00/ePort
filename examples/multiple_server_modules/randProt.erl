@@ -29,11 +29,11 @@
 %%%===================================================================
 %%% ePort messages functions
 %%%===================================================================
-clientConnected(EPortPid, EListenerPid, PeerHost) ->
+clientConnected(EPortPid, _EListenerPid, _PeerHost) ->
     io:format("RandProt: ~p is connected~n", [EPortPid]).
 
-clientDisconnected(EPortPid, EListenerPid) ->
+clientDisconnected(EPortPid, _EListenerPid) ->
     io:format("RandProt: ~p is disconnected~n", [EPortPid]).
 
-uniform(EPortPid, X) ->
+uniform(_EPortPid, X) ->
     rand:uniform(X).

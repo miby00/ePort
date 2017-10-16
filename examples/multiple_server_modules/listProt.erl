@@ -35,5 +35,5 @@ clientConnected(EPortPid, _EListenerPid, _PeerHost) ->
 clientDisconnected(EPortPid, _EListenerPid) ->
     io:format("ListProt: ~p is disconnected~n", [EPortPid]).
 
-append(EPortPid, List1, List2) ->
+append(_EPortPid, List1, List2) ->
     lists:append(List1, List2).
