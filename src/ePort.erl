@@ -53,7 +53,9 @@
 
 %%--------------------------------------------------------------------
 %% @doc
-%% Starts the server
+%% Starts the server.
+%% Module can be either an atom or a tuple with two elements with the
+%% local protocol module and the desired remote protocol module.
 %%
 %% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
 %% @end

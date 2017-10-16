@@ -87,7 +87,9 @@ stop(Pid) ->
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% Initializes the server
+%% Initializes the server. The server can be initialized either with
+%% a single protocol module (atom) or several allowed protocol modules
+%% (a list of atoms).
 %%
 %% @spec init(Args) -> {ok, State} |
 %%                     {ok, State, Timeout} |
