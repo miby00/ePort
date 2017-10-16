@@ -37,7 +37,7 @@
 
 -record(state, {ssl = false,
                 listenSocket,
-                protocol_module,
+                protocolModule,
                 allowedIps = all,
                 disabled = false}).
 
@@ -63,6 +63,9 @@ start_link(Module, LPort, AllowedIps, SSLOptions) ->
 
 updateIPAllowed(Pid, IPAllowed) ->
     gen_server:cast(Pid, {updateIPAllowed, IPAllowed}).
+
+updateModulesAllowed(Pid, ModulesAllowed) ->
+    gen_server:cast(Pid, {updateModulesAllowed, ModulesAllowed}).
 
 updateListenPort(Pid, Port) ->
     gen_server:cast(Pid, {updateListenPort, Port}).
@@ -98,10 +101,10 @@ init([Module, LPort, AllowedIps]) ->
                                 {active, false}, {packet, 4}]) of
         {ok, ListenSocket} ->
             self() ! nextWorker,
-            {ok, #state{ssl             = false,
-                        listenSocket    = ListenSocket,
-                        protocol_module = Module,
-                        allowedIps      = AllowedIps}};
+            {ok, #state{ssl            = false,
+                        listenSocket   = ListenSocket,
+                        protocolModule = Module,
+                        allowedIps     = AllowedIps}};
         {error, Reason} ->
             eLog:log(debug, ?MODULE, init, [LPort, Reason],
                      "Cannot start listen port...", ?LINE, Module),
@@ -119,10 +122,10 @@ init([Module, LPort, AllowedIps, SSLOptions]) ->
                             {active, false}, {packet, 4} | SSLOptions]) of
         {ok, ListenSocket} ->
             self() ! nextWorker,
-            {ok, #state{ssl             = {true, SSLOptions},
-                        listenSocket    = ListenSocket,
-                        protocol_module = Module,
-                        allowedIps      = AllowedIps}};
+            {ok, #state{ssl            = {true, SSLOptions},
+                        listenSocket   = ListenSocket,
+                        protocolModule = Module,
+                        allowedIps     = AllowedIps}};
         {error, Reason} ->
             eLog:log(debug, ?MODULE, init, [LPort, Reason],
                      "Cannot start listen port...", ?LINE, Module),
@@ -161,6 +164,8 @@ handle_call(_Request, _From, State) ->
 %%--------------------------------------------------------------------
 handle_cast({updateIPAllowed, IPAllowed}, State) when is_list(IPAllowed) ->
     {noreply, State#state{allowedIps = IPAllowed}};
+handle_cast({updateModulesAllowed, ModulesAllowed}, State) ->
+    {noreply, State#state{protocolModule = ModulesAllowed}};
 handle_cast({updateListenPort, Port},
             State = #state{ssl = false}) when is_integer(Port) ->
     gen_tcp:close(State#state.listenSocket),
@@ -170,7 +175,7 @@ handle_cast({updateListenPort, Port},
         Reason ->
             eLog:log(error, ?MODULE, handle_cast, [Reason],
                      "Failed to open port... shutting down.", ?LINE,
-                     State#state.protocol_module),
+                     State#state.protocolModule),
             {stop, normal, State}
     end;
 handle_cast({updateListenPort, Port},
@@ -182,7 +187,7 @@ handle_cast({updateListenPort, Port},
         Reason ->
             eLog:log(error, ?MODULE, handle_cast, [Reason],
                      "Failed to open port... shutting down.", ?LINE,
-                     State#state.protocol_module),
+                     State#state.protocolModule),
             {stop, normal, State}
     end;
 handle_cast(enable, State) ->
@@ -205,10 +210,10 @@ handle_cast(_Msg, State) ->
 %%--------------------------------------------------------------------
 handle_info(_Info, State = #state{disabled = true}) ->
     {noreply, State};
-handle_info(nextWorker, State = #state{ssl             = SSLConfig,
-                                       protocol_module = Module,
-                                       listenSocket    = ListenSocket,
-                                       allowedIps      = AllowedIps}) ->
+handle_info(nextWorker, State = #state{ssl            = SSLConfig,
+                                       protocolModule = Module,
+                                       listenSocket   = ListenSocket,
+                                       allowedIps     = AllowedIps}) ->
 
     spawn(?MODULE, doAccept, [self(), Module,
                               ListenSocket, AllowedIps, SSLConfig]),
@@ -227,7 +232,7 @@ handle_info(_Info, State) ->
 %% @spec terminate(Reason, State) -> void()
 %% @end
 %%--------------------------------------------------------------------
-terminate(Reason, #state{protocol_module = Module, listenSocket = LSocket}) ->
+terminate(Reason, #state{protocolModule = Module, listenSocket = LSocket}) ->
     eLog:log(debug, ?MODULE, terminate, [Reason, LSocket],
              "Shutting down...", ?LINE, Module),
     (catch gen_tcp:close(LSocket)),
