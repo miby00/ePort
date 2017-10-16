@@ -6,14 +6,16 @@
 %%% @end
 %%% Created : 10 Oct 2017 by Taddic
 %%%===================================================================
--module(example).
+-module(exampleDining).
 
 
 %%%===================================================================
 %%% Exports
 %%%===================================================================
 %%% API
--export([start/0]).
+-export([
+         start/0
+        ]).
 
 
 %%%===================================================================
@@ -24,7 +26,9 @@ start() ->
     {ok, WaiterServer} = waiterServer:start_link(),
 
     %% Start five philosophers that want to eat.
-    lists:foreach(fun startPhilosopher/1, [1,2,3,4,5]),
+    lists:foreach(fun(Id) ->
+                          philosopherServer:start_link(Id, "localhost")
+                  end, [1,2,3,4,5]),
 
     %% Let the philosophers think and eat for some time
     timer:sleep(30000),
@@ -35,10 +39,3 @@ start() ->
 
     %% Shut down the waiter server
     gen_server:stop(WaiterServer).
-
-
-%%%===================================================================
-%%% Internal functions
-%%%===================================================================
-startPhilosopher(Id) ->
-    philosopherServer:start_link(Id, "localhost").
