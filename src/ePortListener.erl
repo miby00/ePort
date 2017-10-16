@@ -206,9 +206,9 @@ handle_cast(_Msg, State) ->
 handle_info(_Info, State = #state{disabled = true}) ->
     {noreply, State};
 handle_info(nextWorker, State = #state{ssl          = SSLConfig,
-    module       = Module,
-    listenSocket = ListenSocket,
-    allowedIps   = AllowedIps}) ->
+                                       module       = Module,
+                                       listenSocket = ListenSocket,
+                                       allowedIps   = AllowedIps}) ->
 
     spawn(?MODULE, doAccept, [self(), Module,
         ListenSocket, AllowedIps, SSLConfig]),
