@@ -316,11 +316,18 @@ handle_info({ssl, Socket, ?Pong}, State = #state{socket   = Socket,
     ssl:setopts(Socket,[{active,once}]),
     {noreply, State#state{timerRef = undefined}};
 handle_info({tcp, Socket, Data}, State = #state{socket = Socket,
-                                                module = Module}) when
-                   is_list(Module) ->
-    NewState = case handlePacket(self(), Module, Data) of
+                                                elPid = ELPid,
+                                                module = Modules}) when
+                   is_list(Modules) ->
+    NewState = case handlePacket(self(), Modules, Data) of
                    {desiredModule, PModule} when is_atom(PModule) ->
-                       State#state{module = PModule};
+                       case lists:member(PModule, Modules) of
+                           true  ->
+                               IPAddr = ePortListener:getIpAddress(Socket),
+                               (catch PModule:clientConnected(self(), ELPid, IPAddr)),
+                               State#state{module = PModule};
+                           false -> State#state{module = undefined}
+                       end;
                    _ ->
                        State
                end,
@@ -332,11 +339,18 @@ handle_info({tcp, Socket, Data}, State = #state{socket = Socket,
     inet:setopts(Socket,[{active,once}]),
     {noreply, State};
 handle_info({ssl, Socket, Data}, State = #state{socket = Socket,
-                                                module = Module}) when
-                   is_list(Module) ->
-    NewState = case handlePacket(self(), Module, Data) of
+                                                elPid = ELPid,
+                                                module = Modules}) when
+                   is_list(Modules) ->
+    NewState = case handlePacket(self(), Modules, Data) of
                    {desiredModule, PModule} when is_atom(PModule) ->
-                       State#state{module = PModule};
+                       case lists:member(PModule, Modules) of
+                           true  ->
+                               IPAddr = ePortListener:getIpAddress(Socket),
+                               (catch PModule:clientConnected(self(), ELPid, IPAddr)),
+                               State#state{module = PModule};
+                           false -> State#state{module = undefined}
+                       end;
                    _ ->
                        State
                end,
