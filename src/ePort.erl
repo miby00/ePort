@@ -140,9 +140,18 @@ init([Module, Host, Port, false]) ->
     case catch gen_tcp:connect(Host, Port,
                                [{packet,4},{active,once},binary], 10000) of
         {ok, Socket} ->
+            NewModule =
+                case Module of
+                    {LocalModule, RemoteModule} ->
+                        doSendPacket(Socket, {desiredModule, RemoteModule}),
+                        LocalModule;
+                    Module when is_atom(Module) ->
+                        Module
+                end,
+
             erlang:send_after(?Timeout, self(), timeout),
             {ok, #state{socket = Socket,
-                        module = Module,
+                        module = NewModule,
                         client = true,
                         ssl    = false}};
         Reason ->
@@ -161,9 +170,17 @@ init([Module, Host, Port, {true, SSLOptions}]) ->
                             {active, once},
                             binary | SSLOptions], 10000) of
         {ok, Socket} ->
+            NewModule =
+                case Module of
+                    {LocalModule, RemoteModule} ->
+                        doSendPacket(Socket, {desiredModule, RemoteModule}),
+                        LocalModule;
+                    Module when is_atom(Module) ->
+                        Module
+                end,
             erlang:send_after(?Timeout, self(), timeout),
             {ok, #state{socket = Socket,
-                        module = Module,
+                        module = NewModule,
                         client = true,
                         ssl    = {true, SSLOptions}}};
         Reason ->
@@ -187,7 +204,7 @@ init([Module, Host, Port, {true, SSLOptions}]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call(Msg, _From, State = #state{shutting_down = true}) ->
+handle_call(_Msg, _From, State = #state{shutting_down = true}) ->
     handleShutdown(State);
 handle_call({call, Function, Args}, From, State = #state{socket = Socket,
                                                          module = Module,
@@ -216,7 +233,7 @@ handle_call(_Request, _From, State) ->
 %%                                  {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_cast(Msg, State = #state{shutting_down = true}) ->
+handle_cast(_Msg, State = #state{shutting_down = true}) ->
     handleShutdown(State);
 handle_cast({cast, Function, Args}, State = #state{socket = Socket,
                                                    module = Module,
@@ -255,7 +272,7 @@ handle_info({rpc_result, Result, From}, State = #state{socket = Socket,
 handle_info({rpc_result, Result, From}, State = #state{socket = Socket}) ->
     doSendPacketSSL(Socket, {rpc_result, Result, From}),
     {noreply, State};
-handle_info(Msg, State = #state{shutting_down = true}) ->
+handle_info(_Msg, State = #state{shutting_down = true}) ->
     handleShutdown(State);
 handle_info({tcp, Socket, ?Ping}, State = #state{socket = Socket,
                                                  ssl    = false}) ->
@@ -299,10 +316,32 @@ handle_info({ssl, Socket, ?Pong}, State = #state{socket   = Socket,
     ssl:setopts(Socket,[{active,once}]),
     {noreply, State#state{timerRef = undefined}};
 handle_info({tcp, Socket, Data}, State = #state{socket = Socket,
+                                                module = Module}) when
+                   is_list(Module) ->
+    NewState = case handlePacket(self(), Module, Data) of
+                   {desiredModule, PModule} when is_atom(PModule) ->
+                       State#state{module = PModule};
+                   _ ->
+                       State
+               end,
+    inet:setopts(Socket,[{active,once}]),
+    {noreply, NewState};
+handle_info({tcp, Socket, Data}, State = #state{socket = Socket,
                                                 module = Module}) ->
     handlePacket(self(), Module, Data),
     inet:setopts(Socket,[{active,once}]),
     {noreply, State};
+handle_info({ssl, Socket, Data}, State = #state{socket = Socket,
+                                                module = Module}) when
+                   is_list(Module) ->
+    NewState = case handlePacket(self(), Module, Data) of
+                   {desiredModule, PModule} when is_atom(PModule) ->
+                       State#state{module = PModule};
+                   _ ->
+                       State
+               end,
+    ssl:setopts(Socket,[{active,once}]),
+    {noreply, NewState};
 handle_info({ssl, Socket, Data}, State = #state{socket = Socket,
                                                 module = Module}) ->
     handlePacket(self(), Module, Data),
@@ -430,6 +469,8 @@ handlePacket(Pid, Module, Data) ->
             spawn_monitor(?MODULE,rpcCast,[Pid,Module,Function,Args]);
         {rpc_result, Result, From} ->
             gen_server:reply(From, Result);
+        {desiredModule, ProtocolModule} ->
+            {desiredModule, ProtocolModule};
         _ ->
             ok
     end.
