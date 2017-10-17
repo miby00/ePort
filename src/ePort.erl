@@ -509,6 +509,9 @@ handleDesiredModule(Modules, ELPid, Socket, Data) ->
                     (catch PModule:clientConnected(self(), ELPid, IPAddr)),
                     PModule;
                 false ->
+                    log(debug, ?MODULE, handleDesiredModule,
+                        [PModule, self()], "DesiredModule is not allowed",
+                        ?LINE, undefined),
                     undefined
             end;
         _ ->
