@@ -121,22 +121,35 @@ stop(Pid) ->
 %%--------------------------------------------------------------------
 init([ELPid, Module, Socket, false]) when is_pid(ELPid) ->
     inet:setopts(Socket, [{packet, 4}, {active,once}, binary]),
-    IPAddr = ePortListener:getIpAddress(Socket),
-    (catch Module:clientConnected(self(), ELPid, IPAddr)),
+
+    %% The module field is initially supposed to be a list of modules
+    %% that the server provides access to.
+    %% Ideally the server will be started with a list, but the old
+    %% behaviour was to start it with just an atom for one module.
+    %% In order to be backwards compatible and make the new behaviour
+    %% work we wrap Module in a list and then flatten it.
+    NewModule = lists:flatten([Module]),
+
     {ok, #state{socket = Socket,
-                module = Module,
+                module = NewModule,
                 elPid  = ELPid,
                 ssl    = false}};
 init([ELPid, Module, Socket, SSLConfig]) when is_pid(ELPid) ->
     application:start(crypto),
     application:start(public_key),
     application:start(ssl),
-
     ssl:setopts(Socket, [{packet, 4}, {active,once}, binary]),
-    IPAddr = ePortListener:getIpAddress(Socket),
-    (catch Module:clientConnected(self(), ELPid, IPAddr)),
+
+    %% The module field is initially supposed to be a list of modules
+    %% that the server provides access to.
+    %% Ideally the server will be started with a list, but the old
+    %% behaviour was to start it with just an atom for one module.
+    %% In order to be backwards compatible and make the new behaviour
+    %% work we wrap Module in a list and then flatten it.
+    NewModule = lists:flatten([Module]),
+
     {ok, #state{socket = Socket,
-                module = Module,
+                module = NewModule,
                 elPid  = ELPid,
                 ssl    = SSLConfig}};
 init([Module, Host, Port, false]) ->
@@ -491,29 +504,35 @@ handleShutdown(State) ->
         _                -> {noreply, State}
     end.
 
-handleModule(Socket, Module) ->
-    case Module of
-        {LocalModule, RemoteModule} ->
-            doSendPacket(Socket, {desiredModule, RemoteModule}),
-            LocalModule;
-        Module when is_atom(Module) ->
-            Module
-    end.
 
+handleModule(Socket, {LocalModule, RemoteModule}) ->
+    doSendPacket(Socket, {desiredModule, RemoteModule}),
+    LocalModule;
+handleModule(Socket, Module) when is_atom(Module) ->
+    handleModule(Socket, {Module, default}).
+
+
+handleDesiredModule([Module], ELPid, Socket, {desiredModule, default}) ->
+    handleDesiredModule([Module], ELPid, Socket, {desiredModule, Module});
+handleDesiredModule(Modules, ELPid, Socket, {desiredModule, PModule}) ->
+    case lists:member(PModule, Modules) of
+        true  ->
+            IPAddr = ePortListener:getIpAddress(Socket),
+            (catch PModule:clientConnected(self(), ELPid, IPAddr)),
+            PModule;
+        false ->
+            log(debug, ?MODULE, handleDesiredModule, [PModule, self()],
+                "DesiredModule is not allowed or not specified",
+                ?LINE, undefined),
+            undefined
+    end;
 handleDesiredModule(Modules, ELPid, Socket, Data) ->
     case handlePacket(self(), Modules, Data) of
         {desiredModule, PModule} when is_atom(PModule) ->
-            case lists:member(PModule, Modules) of
-                true  ->
-                    IPAddr = ePortListener:getIpAddress(Socket),
-                    (catch PModule:clientConnected(self(), ELPid, IPAddr)),
-                    PModule;
-                false ->
-                    log(debug, ?MODULE, handleDesiredModule,
-                        [PModule, self()], "DesiredModule is not allowed",
-                        ?LINE, undefined),
-                    undefined
-            end;
+            handleDesiredModule(Modules,
+                               ELPid,
+                               Socket,
+                               {desiredModule, PModule});
         _ ->
             undefined
     end.
