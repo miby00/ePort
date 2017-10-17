@@ -32,6 +32,7 @@
 
 -define(SERVER,  ?MODULE).
 -define(Timeout, 30000).
+-define(TCPOptions, [{packet,4}, {active,once}, binary]).
 
 -define(Ping,    <<131,100,0,4,112,105,110,103>>).
 -define(Pong,    <<131,100,0,4,112,111,110,103>>).
@@ -139,21 +140,11 @@ init([ELPid, Module, Socket, SSLConfig]) when is_pid(ELPid) ->
                 elPid  = ELPid,
                 ssl    = SSLConfig}};
 init([Module, Host, Port, false]) ->
-    case catch gen_tcp:connect(Host, Port,
-                               [{packet,4},{active,once},binary], 10000) of
+    case catch gen_tcp:connect(Host, Port, ?TCPOptions, 10000) of
         {ok, Socket} ->
-            NewModule =
-                case Module of
-                    {LocalModule, RemoteModule} ->
-                        doSendPacket(Socket, {desiredModule, RemoteModule}),
-                        LocalModule;
-                    Module when is_atom(Module) ->
-                        Module
-                end,
-
             erlang:send_after(?Timeout, self(), timeout),
             {ok, #state{socket = Socket,
-                        module = NewModule,
+                        module = handleModule(Socket, Module),
                         client = true,
                         ssl    = false}};
         Reason ->
@@ -167,22 +158,11 @@ init([Module, Host, Port, {true, SSLOptions}]) ->
     application:start(public_key),
     application:start(ssl),
 
-    case catch ssl:connect(Host, Port,
-                           [{packet, 4},
-                            {active, once},
-                            binary | SSLOptions], 10000) of
+    case catch ssl:connect(Host, Port, ?TCPOptions++SSLOptions, 10000) of
         {ok, Socket} ->
-            NewModule =
-                case Module of
-                    {LocalModule, RemoteModule} ->
-                        doSendPacket(Socket, {desiredModule, RemoteModule}),
-                        LocalModule;
-                    Module when is_atom(Module) ->
-                        Module
-                end,
             erlang:send_after(?Timeout, self(), timeout),
             {ok, #state{socket = Socket,
-                        module = NewModule,
+                        module = handleModule(Socket, Module),
                         client = true,
                         ssl    = {true, SSLOptions}}};
         Reason ->
@@ -321,20 +301,9 @@ handle_info({tcp, Socket, Data}, State = #state{socket = Socket,
                                                 elPid = ELPid,
                                                 module = Modules}) when
                    is_list(Modules) ->
-    NewState = case handlePacket(self(), Modules, Data) of
-                   {desiredModule, PModule} when is_atom(PModule) ->
-                       case lists:member(PModule, Modules) of
-                           true  ->
-                               IPAddr = ePortListener:getIpAddress(Socket),
-                               (catch PModule:clientConnected(self(), ELPid, IPAddr)),
-                               State#state{module = PModule};
-                           false -> State#state{module = undefined}
-                       end;
-                   _ ->
-                       State
-               end,
+    Module = handleDesiredModule(Modules, ELPid, Socket, Data),
     inet:setopts(Socket,[{active,once}]),
-    {noreply, NewState};
+    {noreply, State#state{module = Module}};
 handle_info({tcp, Socket, Data}, State = #state{socket = Socket,
                                                 module = Module}) ->
     handlePacket(self(), Module, Data),
@@ -344,20 +313,9 @@ handle_info({ssl, Socket, Data}, State = #state{socket = Socket,
                                                 elPid = ELPid,
                                                 module = Modules}) when
                    is_list(Modules) ->
-    NewState = case handlePacket(self(), Modules, Data) of
-                   {desiredModule, PModule} when is_atom(PModule) ->
-                       case lists:member(PModule, Modules) of
-                           true  ->
-                               IPAddr = ePortListener:getIpAddress(Socket),
-                               (catch PModule:clientConnected(self(), ELPid, IPAddr)),
-                               State#state{module = PModule};
-                           false -> State#state{module = undefined}
-                       end;
-                   _ ->
-                       State
-               end,
+    Module = handleDesiredModule(Modules, ELPid, Socket, Data),
     ssl:setopts(Socket,[{active,once}]),
-    {noreply, NewState};
+    {noreply, State#state{module = Module}};
 handle_info({ssl, Socket, Data}, State = #state{socket = Socket,
                                                 module = Module}) ->
     handlePacket(self(), Module, Data),
@@ -531,4 +489,28 @@ handleShutdown(State) ->
     case erlang:process_info(self(), [monitors]) of
         [{monitors, []}] -> {stop, normal, State};
         _                -> {noreply, State}
+    end.
+
+handleModule(Socket, Module) ->
+    case Module of
+        {LocalModule, RemoteModule} ->
+            doSendPacket(Socket, {desiredModule, RemoteModule}),
+            LocalModule;
+        Module when is_atom(Module) ->
+            Module
+    end.
+
+handleDesiredModule(Modules, ELPid, Socket, Data) ->
+    case handlePacket(self(), Modules, Data) of
+        {desiredModule, PModule} when is_atom(PModule) ->
+            case lists:member(PModule, Modules) of
+                true  ->
+                    IPAddr = ePortListener:getIpAddress(Socket),
+                    (catch PModule:clientConnected(self(), ELPid, IPAddr)),
+                    PModule;
+                false ->
+                    undefined
+            end;
+        _ ->
+            undefined
     end.
