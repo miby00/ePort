@@ -23,14 +23,17 @@
 %%%===================================================================
 start() ->
     Port = 19001,
-    {ok, _SrvPid} =
-        ePortListener:start_link([listProt, randProt], Port),
-    {ok, ListPid} =
-        ePort:start_link({undefined, listProt}, "localhost", Port),
-    {ok, RandPid} =
-        ePort:start_link({undefined, randProt}, "localhost", Port),
+    {ok,SrvPid}   = ePortListener:start_link(listProt, Port),
+    {ok,ListPid}  = ePort:start_link({undefined,listProt},"localhost",Port),
+    {ok,RandPid1} = ePort:start_link({undefined,randProt},"localhost",Port),
 
-    io:format("ListPid: ~p~n", [ePort:call(ListPid, append, [[1,2], [3,4]])]),
-    io:format("RandPid: ~p~n", [ePort:call(RandPid, uniform, [1000])]),
-    exit(ListPid, kill),
-    exit(RandPid, kill).
+    ePort:start_link({undefined, randProt}, "localhost", Port),
+    {ok,RandPid2} = ePort:start_link({undefined,randProt},"localhost",Port),
+
+    io:format("ListPid: ~p~n", [ePort:call(ListPid,append,[[1,2],[3,4]])]),
+    io:format("RandPid1: ~p~n", [ePort:call(RandPid1, uniform, [1000])]),
+    io:format("RandPid2: ~p~n", [ePort:call(RandPid2, uniform, [1000])]),
+    exit(ListPid,  kill),
+    exit(RandPid1,  kill),
+    exit(RandPid2, kill),
+    ok.
