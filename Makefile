@@ -10,6 +10,4 @@ start: build
 clean:
 	$(REBAR) clean
 	-rm -rf _build rebar.lock rebar3.crashdump
-	-rm -rf *~
-	-rm -rf examples/MultipleServerModules/*~
-	-rm -rf examples/DiningPhilosophers/*~
+	-find . -name "*~" -type f -delete
