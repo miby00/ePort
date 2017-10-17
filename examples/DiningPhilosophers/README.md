@@ -14,7 +14,7 @@ make
 
 To start the actual example code just type in:
 ```erlang
-example:start().
+exampleDining:start().
 ```
 
 ## Files
@@ -22,14 +22,14 @@ The example contains five different files that takes care of different things.
 
 | File                  | Function                                                                           |
 |-----------------------|------------------------------------------------------------------------------------|
-| example.erl           | Module to start the example in a convenient way                                    |
+| exampleDining.erl     | Module to start the example in a convenient way                                    |
 | waiter.erl            | The protocol module that the server provides                                       |
 | waiterServer.erl      | A gen server that keeps a state and provides values for the server protocol module |
 | philosopher.erl       | The protocol module that the client provides                                       |
 | philosopherServer.erl | A gen server that keeps a state and provides values for the client protocol module |
 
 ## Explanation
-The example is started in example.erl, this is an overview of the flow.
+The example is started in exampleDining.erl, this is an overview of the flow.
 
 1. The server need to be started, this is done with ```waiterServer:start_link() ```
 This is a gen_server which will in the init/1 function call ePortListener:start_link(waiter, 19000) in order
