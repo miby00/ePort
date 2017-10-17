@@ -27,7 +27,7 @@ start() ->
     {ok,ListPid}  = ePort:start_link({undefined,listProt},"localhost",Port),
     {ok,RandPid1} = ePort:start_link({undefined,randProt},"localhost",Port),
 
-    ePort:start_link({undefined, randProt}, "localhost", Port),
+    ePortListener:updateModulesAllowed(SrvPid, [listProt, randProt]),
     {ok,RandPid2} = ePort:start_link({undefined,randProt},"localhost",Port),
 
     io:format("ListPid: ~p~n", [ePort:call(ListPid,append,[[1,2],[3,4]])]),
