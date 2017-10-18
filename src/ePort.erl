@@ -37,13 +37,13 @@
 -define(Ping,    <<131,100,0,4,112,105,110,103>>).
 -define(Pong,    <<131,100,0,4,112,111,110,103>>).
 
--record(state, {socket,
-                module,
-                client = false,
+-record(state, {client = false,
                 elPid,
-                timerRef,
+                module,
+                shutting_down = false,
+                socket,
                 ssl = false,
-                shutting_down = false
+                timerRef
                }).
 
 -import(eLog, [log/7]).
