@@ -44,7 +44,7 @@
                 port,
                 protocolModule,
                 ssl = false
-                }).
+               }).
 
 %%%===================================================================
 %%% API
@@ -172,7 +172,7 @@ handle_call({updateModulesAllowed, Modules}, _From,
     updateListener(gen_tcp, [], State#state{protocolModule = Modules});
 handle_call({updateModulesAllowed, Modules}, _From,
             State = #state{ssl = {true,SSLOptions}}) when
-            is_list(Modules) ->
+      is_list(Modules) ->
     eLog:log(debug, ?MODULE, handle_call, [Modules, "SSL"],
              "Updating allowed protocol modules", ?LINE),
     updateListener(ssl, SSLOptions, State#state{protocolModule = Modules});
