@@ -50,28 +50,28 @@ The server side receives a Pid to use for outgoing communication.
 ePort client can only call functions defined in the ePortListeners srvProtModule.
 ePort server can only call functions defined in the ePorts clientProtModule.
 
-### Example
+## Example
 
 There are two examples in the example folder. To run the example just type in 'make' in
-root folder of the repository. Then type in either
+root folder of the repository, this starts an erlang shell where you can type:
 
 ```erlang
 exampleDining:start().
-
+```
 or
-
+```erlang
 exampleMultiple:start().
 ```
 
-The example is a small implementation of the dining philosophers problem using an arbitror.
+The first example is a small implementation of the dining philosophers problem using an arbitror.
 It seems to be working but could contain some bugs, but it is just to illustrate how ePort works.
 If you find any bugs raise an issue please :)
-There is a separate README in the example directory which describes the example in more detail.
+The other example is a simpler example and illustrates how you can update the available protocol
+modules provided by the ePortListener side.
+There is a separate README in the example directories which describes the examples in more detail.
 
-### Last but least...
+## Encryption
 
-Apart from doing call:s using ePort you can also do cast:s in the same way
-as described above.
-
-It is also possible to setup encrypted communication, see ePort for an example of
-how to do that.
+It is also possible to setup encrypted communication. To do that the ePorts need to be setup
+with SSL options. This is done by calling ePort:start_link/4 and with a list of SSL options.
+See [I'm an inline-style link with title](http://erlang.org/doc/man/ssl.html "Erlang SSL")
