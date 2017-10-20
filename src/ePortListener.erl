@@ -17,7 +17,6 @@
          updateIPAllowed/2,
          updateModulesAllowed/2,
          updateListenPort/2,
-         doAccept/5,
          disable/1,
          enable/1,
          stop/1]).
@@ -35,15 +34,15 @@
          code_change/3]).
 
 -define(SERVER, ?MODULE).
--define(TCPOptions, [{reuseaddr, true},{active, false}, {packet, 4}]).
+-define(TCPOptions, [{active, false}, {packet, 4}]).
 -define(Timeout, 30000).
 
 -record(state, {allowedIps = all,
                 disabled = false,
                 listenSocket,
-                port,
                 protocolModule,
-                ssl = false
+                ssl = false,
+                worker = undefined
                }).
 
 %%%===================================================================
@@ -108,7 +107,6 @@ init([Module, LPort, AllowedIps]) ->
         {ok, ListenSocket} ->
             self() ! nextWorker,
             {ok, #state{ssl            = false,
-                        port           = LPort,
                         listenSocket   = ListenSocket,
                         protocolModule = Module,
                         allowedIps     = AllowedIps}};
@@ -129,7 +127,6 @@ init([Module, LPort, AllowedIps, SSLOptions]) ->
         {ok, ListenSocket} ->
             self() ! nextWorker,
             {ok, #state{ssl            = {true, SSLOptions},
-                        port           = LPort,
                         listenSocket   = ListenSocket,
                         protocolModule = Module,
                         allowedIps     = AllowedIps}};
@@ -153,40 +150,28 @@ init([Module, LPort, AllowedIps, SSLOptions]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call({updateIPAllowed, IPAllowed}, _From,
-            State = #state{ssl = false}) when is_list(IPAllowed) ->
+handle_call({updateIPAllowed, IPAllowed}, _From, State) when
+      is_list(IPAllowed) ->
     eLog:log(debug, ?MODULE, handle_call, [IPAllowed],
              "Updating allowed IPs", ?LINE),
-    updateListener(gen_tcp, [], State#state{allowedIps = IPAllowed});
-handle_call({updateIPAllowed, IPAllowed}, _From,
-            State = #state{ssl = {true, SSLOptions}}) when
-      is_list(IPAllowed) ->
-    eLog:log(debug, ?MODULE, handle_call, [IPAllowed, "SSL"],
-             "Updating allowed IPs", ?LINE),
-    updateListener(ssl, SSLOptions, State#state{allowedIps = IPAllowed});
+    updateListener(State#state{allowedIps = IPAllowed});
 
-handle_call({updateModulesAllowed, Modules}, _From,
-            State = #state{ssl = false}) when is_list(Modules) ->
+handle_call({updateModulesAllowed, Modules}, _From, State) when
+      is_list(Modules) ->
     eLog:log(debug, ?MODULE, handle_call, [Modules],
              "Updating allowed protocol modules", ?LINE),
-    updateListener(gen_tcp, [], State#state{protocolModule = Modules});
-handle_call({updateModulesAllowed, Modules}, _From,
-            State = #state{ssl = {true,SSLOptions}}) when
-      is_list(Modules) ->
-    eLog:log(debug, ?MODULE, handle_call, [Modules, "SSL"],
-             "Updating allowed protocol modules", ?LINE),
-    updateListener(ssl, SSLOptions, State#state{protocolModule = Modules});
+    updateListener(State#state{protocolModule = Modules});
 
 handle_call({updateListenPort, Port}, _From,
             State = #state{ssl = false}) when is_integer(Port) ->
     eLog:log(debug, ?MODULE, handle_call, [Port],
              "Updating listen port", ?LINE),
-    updateListener(gen_tcp, [], State#state{port = Port});
+    updateListenPort(gen_tcp, [], Port, State);
 handle_call({updateListenPort, Port}, _From,
             State = #state{ssl = {true,SSLOptions}}) when is_integer(Port) ->
     eLog:log(debug, ?MODULE, handle_call, [Port, "SSL"],
              "Updating listen port", ?LINE),
-    updateListener(ssl, SSLOptions, State#state{port = Port});
+    updateListenPort(ssl, SSLOptions, Port, State);
 
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State};
@@ -229,9 +214,11 @@ handle_info(nextWorker, State = #state{ssl            = SSLConfig,
                                        listenSocket   = ListenSocket,
                                        allowedIps     = AllowedIps}) ->
 
-    spawn(?MODULE, doAccept, [self(), Module,
-                              ListenSocket, AllowedIps, SSLConfig]),
-    {noreply, State};
+    Worker = ePortAcceptor:start(Module,
+                                 ListenSocket,
+                                 AllowedIps,
+                                 SSLConfig),
+    {noreply, State#state{worker = Worker}};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -266,75 +253,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-doAccept(LPid, Module, ListenSocket, AllowedIps, false) ->
-    case gen_tcp:accept(ListenSocket) of
-        {ok, Socket} ->
-            startPort(LPid, Module, Socket, AllowedIps, false);
-        Reason ->
-            eLog:log(debug, ?MODULE, doAccept, [Reason],
-                     "Received error from accept", ?LINE, Module),
-            Reason
-    end,
-    LPid ! nextWorker;
-doAccept(LPid, Module, ListenSocket, AllowedIps, {true, SSLOptions}) ->
-    case ssl:transport_accept(ListenSocket) of
-        {ok, Socket} ->
-            case catch ssl:ssl_accept(Socket) of
-                ok ->
-                    startPort(LPid, Module, Socket, AllowedIps,
-                              {true, SSLOptions});
-                _RetValue ->
-                    ok
-            end;
-        Reason ->
-            eLog:log(debug, ?MODULE, doAccept, [Reason],
-                     "Received error from accept", ?LINE, Module),
-            Reason
-    end,
-    LPid ! nextWorker.
-
-startPort(LPid, Module, Socket, AllowedIps, false) ->
-    case allowedIp(Socket, AllowedIps) of
-        {true, IP} ->
-            eLog:log(debug, ?MODULE, startPort, [LPid, IP],
-                     "Connect attempt", ?LINE, Module),
-            case ePort:start(LPid, Module, Socket) of
-                {ok, Pid} ->
-                    gen_tcp:controlling_process(Socket, Pid);
-                Reason ->
-                    Reason
-            end;
-        {false, IP} ->
-            eLog:log(debug, ?MODULE, startPort, [LPid, IP],
-                     "Illegal connect attempt", ?LINE, Module),
-            gen_tcp:close(Socket),
-            {error, notAllowedIp}
-    end;
-startPort(LPid, Module, Socket, AllowedIps, {true, SSLOptions}) ->
-    case allowedIp(Socket, AllowedIps) of
-        {true, IP} ->
-            eLog:log(debug, ?MODULE, startPort, [LPid, IP],
-                     "Connect attempt", ?LINE, Module),
-            case ePort:start(LPid, Module, Socket, SSLOptions) of
-                {ok, Pid} ->
-                    ssl:controlling_process(Socket, Pid);
-                Reason ->
-                    Reason
-            end;
-        {false, IP} ->
-            eLog:log(debug, ?MODULE, startPort, [LPid, IP],
-                     "Illegal connect attempt", ?LINE, Module),
-            ssl:close(Socket),
-            {error, notAllowedIp}
-    end.
-
-allowedIp(Socket,  AllowedIps) when is_list(AllowedIps)->
-    IP = getIpAddress(Socket),
-    {lists:member(IP, AllowedIps), IP};
-allowedIp(Socket,  _) ->
-    IP = getIpAddress(Socket),
-    {true, IP}.
-
 getIpAddress(Socket) ->
     case catch inet:peername(Socket) of
         {ok, {Address, _}} ->
@@ -349,13 +267,23 @@ getIpAddress(Socket) ->
             end
     end.
 
-updateListener(Protocol, SSLOptions, State) ->
+updateListener(State = #state{worker = Worker}) when is_pid(Worker) ->
+    erlang:exit(Worker, kill),
+    self() ! nextWorker,
+    {reply, ok, State#state{worker = undefined}};
+updateListener(State) ->
+    self() ! nextWorker,
+    {reply, ok, State}.
+
+
+
+updateListenPort(Protocol,SSLOptions,Port,State) when is_integer(Port) ->
     Protocol:close(State#state.listenSocket),
-    case catch Protocol:listen(State#state.port, ?TCPOptions++SSLOptions) of
+    case catch Protocol:listen(Port, ?TCPOptions++SSLOptions) of
         {ok, ListenSocket} ->
             {reply, ok, State#state{listenSocket = ListenSocket}};
         Reason ->
-            eLog:log(error, ?MODULE, handle_cast, [Reason, State#state.port],
+            eLog:log(error, ?MODULE, handle_cast, [Reason, Port],
                      "Failed to open port... shutting down.", ?LINE,
                      State#state.protocolModule),
             {stop, normal, State}
