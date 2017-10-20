@@ -15,8 +15,10 @@
          start_link/3,
          start_link/4,
          getConfig/1,
-         updateIPAllowed/2,
+         addModuleAllowed/2,
+         delModuleAllowed/2,
          updateModulesAllowed/2,
+         updateIPAllowed/2,
          updateListenPort/2,
          disable/1,
          enable/1,
@@ -68,11 +70,17 @@ start_link(Module, LPort, AllowedIps, SSLOptions) ->
 getConfig(Pid) ->
     gen_server:call(Pid, getConfig, ?Timeout).
 
-updateIPAllowed(Pid, IPAllowed) ->
-    gen_server:call(Pid, {updateIPAllowed, IPAllowed}, ?Timeout).
+addModuleAllowed(Pid, Module) ->
+    gen_server:call(Pid, {addModuleAllowed, Module}, ?Timeout).
+
+delModuleAllowed(Pid, Module) ->
+    gen_server:call(Pid, {delModuleAllowed, Module}, ?Timeout).
 
 updateModulesAllowed(Pid, Modules) ->
     gen_server:call(Pid, {updateModulesAllowed, Modules}, ?Timeout).
+
+updateIPAllowed(Pid, IPAllowed) ->
+    gen_server:call(Pid, {updateIPAllowed, IPAllowed}, ?Timeout).
 
 updateListenPort(Pid, Port) ->
     gen_server:call(Pid, {updateListenPort, Port}, ?Timeout).
@@ -153,17 +161,45 @@ init([Module, LPort, AllowedIps, SSLOptions]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call({updateIPAllowed, IPAllowed}, _From, State) when
-      is_list(IPAllowed) ->
-    eLog:log(debug, ?MODULE, handle_call, [IPAllowed],
-             "Updating allowed IPs", ?LINE),
-    {reply, ok, State#state{allowedIps = IPAllowed}};
+handle_call({addModuleAllowed, NewModule}, _From,
+            State = #state{protocolModule = Modules}) when
+      is_atom(NewModule) ->
+    eLog:log(debug, ?MODULE, handle_call, [NewModule],
+             "Adding allowed protocol module", ?LINE),
+    NewModules =
+        case Modules of
+            Module when is_atom(Module) ->
+                [NewModule, Module];
+            Modules ->
+                [NewModule | Modules]
+            end,
+    {reply, ok, State#state{protocolModule = lists:usort(NewModules)}};
+
+handle_call({delModuleAllowed, NewModule}, _From,
+            State = #state{protocolModule = Modules}) when
+      is_atom(NewModule) ->
+    eLog:log(debug, ?MODULE, handle_call, [NewModule],
+             "Deleting allowed protocol module", ?LINE),
+    NewModules =
+        case Modules of
+            Modules when length(Modules) > 1 ->
+                lists:delete(NewModule, Modules);
+            Module  ->
+                Module
+        end,
+    {reply, ok, State#state{protocolModule = NewModules}};
 
 handle_call({updateModulesAllowed, Modules}, _From, State) when
       is_list(Modules) ->
     eLog:log(debug, ?MODULE, handle_call, [Modules],
              "Updating allowed protocol modules", ?LINE),
     {reply, ok, State#state{protocolModule = Modules}};
+
+handle_call({updateIPAllowed, IPAllowed}, _From, State) when
+      is_list(IPAllowed) ->
+    eLog:log(debug, ?MODULE, handle_call, [IPAllowed],
+             "Updating allowed IPs", ?LINE),
+    {reply, ok, State#state{allowedIps = IPAllowed}};
 
 handle_call({updateListenPort, Port}, _From,
             State = #state{ssl = false}) when is_integer(Port) ->
