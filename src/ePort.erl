@@ -38,7 +38,6 @@
 -define(Pong,    <<131,100,0,4,112,111,110,103>>).
 
 -record(state, {client = false,
-                clientConnected = false,
                 elPid,
                 module,
                 shutting_down = false,
@@ -123,16 +122,10 @@ stop(Pid) ->
 init([ELPid, Module, Socket, false]) when is_pid(ELPid) ->
     inet:setopts(Socket, [{packet, 4}, {active,once}, binary]),
 
-    %% The module field is initially supposed to be a list of modules
-    %% that the server provides access to.
-    %% Ideally the server will be started with a list, but the old
-    %% behaviour was to start it with just an atom for one module.
-    %% In order to be backwards compatible and make the new behaviour
-    %% work we wrap Module in a list and then flatten it.
-    NewModule = lists:flatten([Module]),
-
+    IPAddr = ePortListener:getIpAddress(Socket),
+    (catch Module:clientConnected(self(), ELPid, IPAddr)),
     {ok, #state{socket = Socket,
-                module = NewModule,
+                module = Module,
                 elPid  = ELPid,
                 ssl    = false}};
 init([ELPid, Module, Socket, SSLConfig]) when is_pid(ELPid) ->
@@ -141,16 +134,10 @@ init([ELPid, Module, Socket, SSLConfig]) when is_pid(ELPid) ->
     application:start(ssl),
     ssl:setopts(Socket, [{packet, 4}, {active,once}, binary]),
 
-    %% The module field is initially supposed to be a list of modules
-    %% that the server provides access to.
-    %% Ideally the server will be started with a list, but the old
-    %% behaviour was to start it with just an atom for one module.
-    %% In order to be backwards compatible and make the new behaviour
-    %% work we wrap Module in a list and then flatten it.
-    NewModule = lists:flatten([Module]),
-
+    IPAddr = ePortListener:getIpAddress(Socket),
+    (catch Module:clientConnected(self(), ELPid, IPAddr)),
     {ok, #state{socket = Socket,
-                module = NewModule,
+                module = Module,
                 elPid  = ELPid,
                 ssl    = SSLConfig}};
 init([Module, Host, Port, false]) ->
@@ -315,26 +302,52 @@ handle_info({tcp, Socket, Data}, State = #state{socket = Socket,
                                                 elPid = ELPid,
                                                 module = Modules}) when
                    is_list(Modules) ->
-    Module = handleDesiredModule(Modules, ELPid, Socket, Data),
-    inet:setopts(Socket,[{active,once}]),
-    {noreply, State#state{module = Module}};
+    case handleDesiredModule(Modules, ELPid, Socket, Data) of
+        {bad_module, PModule} ->
+            eLog:log(error, ?MODULE, handle_info, [PModule],
+                "Requested module not allowed", ?LINE),
+            {stop, normal, State};
+        Module ->
+            inet:setopts(Socket,[{active,once}]),
+            {noreply, State#state{module = Module}}
+    end;
 handle_info({tcp, Socket, Data}, State = #state{socket = Socket,
                                                 module = Module}) ->
-    handlePacket(self(), Module, Data),
-    inet:setopts(Socket,[{active,once}]),
-    {noreply, State};
+    case handlePacket(self(), Module, Data) of
+        {desiredModule, BadModule} when BadModule /= Module ->
+            eLog:log(error, ?MODULE, handle_info, [BadModule],
+                     "Requested module not same as supplied module",
+                     ?LINE),
+            {stop, normal, State};
+        _Else ->
+            inet:setopts(Socket,[{active,once}]),
+            {noreply, State}
+    end;
 handle_info({ssl, Socket, Data}, State = #state{socket = Socket,
                                                 elPid = ELPid,
                                                 module = Modules}) when
                    is_list(Modules) ->
-    Module = handleDesiredModule(Modules, ELPid, Socket, Data),
-    ssl:setopts(Socket,[{active,once}]),
-    {noreply, State#state{module = Module}};
+    case handleDesiredModule(Modules, ELPid, Socket, Data) of
+        {bad_module, PModule} ->
+            eLog:log(error, ?MODULE, handle_info, [PModule],
+                "Requested module not allowed", ?LINE),
+            {stop, normal, State};
+        Module ->
+            ssl:setopts(Socket,[{active,once}]),
+            {noreply, State#state{module = Module}}
+    end;
 handle_info({ssl, Socket, Data}, State = #state{socket = Socket,
                                                 module = Module}) ->
-    handlePacket(self(), Module, Data),
-    ssl:setopts(Socket,[{active,once}]),
-    {noreply, State};
+    case handlePacket(self(), Module, Data) of
+        {desiredModule, BadModule} when BadModule /= Module ->
+            eLog:log(error, ?MODULE, handle_info, [BadModule],
+                     "Requested module not same as supplied module",
+                     ?LINE),
+            {stop, normal, State};
+        _Else ->
+            ssl:setopts(Socket,[{active,once}]),
+            {noreply, State}
+    end;
 handle_info({tcp_closed, Socket}, State = #state{socket = Socket,
                                                  module = Module}) ->
     log(debug, ?MODULE, handle_info, [State, self()],
@@ -509,12 +522,10 @@ handleShutdown(State) ->
 handleModule(Socket, {LocalModule, RemoteModule}) ->
     doSendPacket(Socket, {desiredModule, RemoteModule}),
     LocalModule;
-handleModule(Socket, Module) when is_atom(Module) ->
-    handleModule(Socket, {Module, default}).
+handleModule(_Socket, Module) when is_atom(Module) ->
+    Module.
 
 
-handleDesiredModule([Module], ELPid, Socket, {desiredModule, default}) ->
-    handleDesiredModule([Module], ELPid, Socket, {desiredModule, Module});
 handleDesiredModule(Modules, ELPid, Socket, {desiredModule, PModule}) ->
     case lists:member(PModule, Modules) of
         true  ->
@@ -525,15 +536,20 @@ handleDesiredModule(Modules, ELPid, Socket, {desiredModule, PModule}) ->
             log(debug, ?MODULE, handleDesiredModule, [PModule, self()],
                 "DesiredModule is not allowed or not specified",
                 ?LINE, undefined),
-            undefined
+            {bad_module, PModule}
     end;
 handleDesiredModule(Modules, ELPid, Socket, Data) ->
     case handlePacket(self(), Modules, Data) of
         {desiredModule, PModule} when is_atom(PModule) ->
+            %% The parsed data is sent into this same function
+            %% for further processing.
             handleDesiredModule(Modules,
                                ELPid,
                                Socket,
                                {desiredModule, PModule});
         _ ->
-            undefined
+            %% This scenario should not happen, but if for some strange
+            %% reason it happens anyway we return bad_module and then
+            %% the connection will be closed.
+            {bad_module, undefined}
     end.
