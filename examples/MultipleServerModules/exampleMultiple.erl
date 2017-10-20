@@ -32,7 +32,7 @@ start() ->
     %% Expected value: [1,2,3,4]
     io:format("ListPid: ~p~n", [ePort:call(ListPid,append,[[1,2],[3,4]])]),
 
-    %% Expected value: {error, timeout}
+    %% Expected value: {error, connectionClosed}
     io:format("RandPid1: ~p~n", [ePort:call(RandPid1, uniform, [1000])]),
 
     %% Expected value: random number between 1 and 1000
