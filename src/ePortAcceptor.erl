@@ -10,43 +10,43 @@
 
 %% API
 -export([
-         start/4
+         start/2
         ]).
 
 
 %%%===================================================================
 %%% API
 %%%===================================================================
-start(Module, ListenSocket, AllowedIps, SSLConfig) ->
+start(ListenSocket, SSLConfig) ->
     LPid = self(),
-    Fun = fun() ->
-                  doAccept(LPid,
-                           Module,
-                           ListenSocket,
-                           AllowedIps,
-                           SSLConfig)
-          end,
+    Fun = fun() -> doAccept(LPid, ListenSocket, SSLConfig) end,
     spawn(Fun).
 
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-doAccept(LPid, Module, ListenSocket, AllowedIps, false) ->
+doAccept(LPid, ListenSocket, false) ->
     case gen_tcp:accept(ListenSocket) of
         {ok, Socket} ->
+            ListenConfig = ePortListener:getConfig(LPid),
+            AllowedIps = proplists:get_value(allowedIps, ListenConfig),
+            Module = proplists:get_value(protocolModule, ListenConfig),
             startPort(LPid, Module, Socket, AllowedIps, false);
         Reason ->
             eLog:log(debug, ?MODULE, doAccept, [Reason],
-                     "Received error from accept", ?LINE, Module),
+                     "Received error from accept", ?LINE),
             Reason
     end,
     LPid ! nextWorker;
-doAccept(LPid, Module, ListenSocket, AllowedIps, {true, SSLOptions}) ->
+doAccept(LPid, ListenSocket, {true, SSLOptions}) ->
     case ssl:transport_accept(ListenSocket) of
         {ok, Socket} ->
             case catch ssl:ssl_accept(Socket) of
                 ok ->
+                    ListenConfig = ePortListener:getConfig(LPid),
+                    AllowedIps = proplists:get_value(allowedIps,ListenConfig),
+                    Module = proplists:get_value(protocolModule,ListenConfig),
                     startPort(LPid, Module, Socket, AllowedIps,
                               {true, SSLOptions});
                 _RetValue ->
@@ -54,7 +54,7 @@ doAccept(LPid, Module, ListenSocket, AllowedIps, {true, SSLOptions}) ->
             end;
         Reason ->
             eLog:log(debug, ?MODULE, doAccept, [Reason],
-                     "Received error from accept", ?LINE, Module),
+                     "Received error from accept", ?LINE),
             Reason
     end,
     LPid ! nextWorker.

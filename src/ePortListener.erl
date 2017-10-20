@@ -14,6 +14,7 @@
 -export([start_link/2,
          start_link/3,
          start_link/4,
+         getConfig/1,
          updateIPAllowed/2,
          updateModulesAllowed/2,
          updateListenPort/2,
@@ -41,8 +42,7 @@
                 disabled = false,
                 listenSocket,
                 protocolModule,
-                ssl = false,
-                worker = undefined
+                ssl = false
                }).
 
 %%%===================================================================
@@ -64,6 +64,9 @@ start_link(Module, LPort, AllowedIps) ->
 
 start_link(Module, LPort, AllowedIps, SSLOptions) ->
     gen_server:start_link(?MODULE,[Module,LPort,AllowedIps,SSLOptions],[]).
+
+getConfig(Pid) ->
+    gen_server:call(Pid, getConfig, ?Timeout).
 
 updateIPAllowed(Pid, IPAllowed) ->
     gen_server:call(Pid, {updateIPAllowed, IPAllowed}, ?Timeout).
@@ -154,13 +157,13 @@ handle_call({updateIPAllowed, IPAllowed}, _From, State) when
       is_list(IPAllowed) ->
     eLog:log(debug, ?MODULE, handle_call, [IPAllowed],
              "Updating allowed IPs", ?LINE),
-    updateListener(State#state{allowedIps = IPAllowed});
+    {reply, ok, State#state{allowedIps = IPAllowed}};
 
 handle_call({updateModulesAllowed, Modules}, _From, State) when
       is_list(Modules) ->
     eLog:log(debug, ?MODULE, handle_call, [Modules],
              "Updating allowed protocol modules", ?LINE),
-    updateListener(State#state{protocolModule = Modules});
+    {reply, ok, State#state{protocolModule = Modules}};
 
 handle_call({updateListenPort, Port}, _From,
             State = #state{ssl = false}) when is_integer(Port) ->
@@ -172,6 +175,11 @@ handle_call({updateListenPort, Port}, _From,
     eLog:log(debug, ?MODULE, handle_call, [Port, "SSL"],
              "Updating listen port", ?LINE),
     updateListenPort(ssl, SSLOptions, Port, State);
+
+handle_call(getConfig, _From, State = #state{allowedIps = AllowedIps,
+                                             protocolModule = Modules}) ->
+    Reply = [{allowedIps, AllowedIps}, {protocolModule, Modules}],
+    {reply, Reply, State};
 
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State};
@@ -210,15 +218,10 @@ handle_cast(_Msg, State) ->
 handle_info(_Info, State = #state{disabled = true}) ->
     {noreply, State};
 handle_info(nextWorker, State = #state{ssl            = SSLConfig,
-                                       protocolModule = Module,
-                                       listenSocket   = ListenSocket,
-                                       allowedIps     = AllowedIps}) ->
+                                       listenSocket   = ListenSocket}) ->
 
-    Worker = ePortAcceptor:start(Module,
-                                 ListenSocket,
-                                 AllowedIps,
-                                 SSLConfig),
-    {noreply, State#state{worker = Worker}};
+    ePortAcceptor:start(ListenSocket, SSLConfig),
+    {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -266,16 +269,6 @@ getIpAddress(Socket) ->
                     undefined
             end
     end.
-
-updateListener(State = #state{worker = Worker}) when is_pid(Worker) ->
-    erlang:exit(Worker, kill),
-    self() ! nextWorker,
-    {reply, ok, State#state{worker = undefined}};
-updateListener(State) ->
-    self() ! nextWorker,
-    {reply, ok, State}.
-
-
 
 updateListenPort(Protocol,SSLOptions,Port,State) when is_integer(Port) ->
     Protocol:close(State#state.listenSocket),
