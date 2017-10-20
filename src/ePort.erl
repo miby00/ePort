@@ -38,6 +38,7 @@
 -define(Pong,    <<131,100,0,4,112,111,110,103>>).
 
 -record(state, {client = false,
+                clientConnected = false,
                 elPid,
                 module,
                 shutting_down = false,
@@ -404,9 +405,9 @@ terminate(Reason, #state{socket = undefined,
     log(debug, ?MODULE, terminate, [Reason, self()],
         "Shutting down...", ?LINE, Module),
     ok;
-terminate(Reason, #state{socket = Socket,
-                         client = true,
+terminate(Reason, #state{client = true,
                          module = Module,
+                         socket = Socket,
                          ssl    = SSL}) ->
     log(debug, ?MODULE, terminate, [Reason, Socket, self()],
         "Shutting down...", ?LINE, Module),
@@ -417,10 +418,10 @@ terminate(Reason, #state{socket = Socket,
             (catch ssl:close(Socket))
     end,
     ok;
-terminate(Reason, #state{socket = Socket,
-                         module = Module,
+terminate(Reason, #state{client = false,
                          elPid  = ELPid,
-                         client = false,
+                         module = Module,
+                         socket = Socket,
                          ssl    = SSL}) ->
     %% Tell server protocol implementation that client disconnected.
     (catch Module:clientDisconnected(self(), ELPid)),
