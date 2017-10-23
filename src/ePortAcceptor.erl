@@ -31,7 +31,7 @@ doAccept(LPid, ListenSocket, false) ->
         {ok, Socket} ->
             ListenConfig = ePortListener:getConfig(LPid),
             AllowedIps = proplists:get_value(allowedIps, ListenConfig),
-            Module = proplists:get_value(protocolModule, ListenConfig),
+            Module = proplists:get_value(protocolModules, ListenConfig),
             startPort(LPid, Module, Socket, AllowedIps, false);
         Reason ->
             eLog:log(debug, ?MODULE, doAccept, [Reason],
@@ -46,7 +46,7 @@ doAccept(LPid, ListenSocket, {true, SSLOptions}) ->
                 ok ->
                     ListenConfig = ePortListener:getConfig(LPid),
                     AllowedIps = proplists:get_value(allowedIps,ListenConfig),
-                    Module = proplists:get_value(protocolModule,ListenConfig),
+                    Module = proplists:get_value(protocolModules,ListenConfig),
                     startPort(LPid, Module, Socket, AllowedIps,
                               {true, SSLOptions});
                 _RetValue ->
