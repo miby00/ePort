@@ -23,7 +23,7 @@
 %%%===================================================================
 start() ->
     Port = 19001,
-    {ok,SrvPid}   = ePortListener:start_link(listProt, Port),
+    {ok,SrvPid}   = ePortListener:start_link([listProt], Port),
     {ok,ListPid}  = ePort:start_link({undefined,listProt},"localhost",Port),
     {ok,RandPid1} = ePort:start_link({undefined,randProt},"localhost",Port),
     ePortListener:updateModulesAllowed(SrvPid, [listProt, randProt]),
