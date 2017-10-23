@@ -37,7 +37,7 @@
          code_change/3]).
 
 -define(SERVER, ?MODULE).
--define(TCPOptions, [{active, false}, {packet, 4}]).
+-define(TCPOptions, [{reuseaddr, true}, {active, false}, {packet, 4}]).
 -define(Timeout, 30000).
 
 -record(state, {allowedIps = all,
