@@ -534,7 +534,7 @@ handleDesiredModule(Modules, ELPid, Socket, {desiredModule, PModule}) ->
             PModule;
         false ->
             log(debug, ?MODULE, handleDesiredModule, [PModule, self()],
-                "DesiredModule is not allowed or not specified",
+                "Desired module is not allowed or not specified",
                 ?LINE, undefined),
             {bad_module, PModule}
     end;
