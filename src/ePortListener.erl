@@ -43,7 +43,7 @@
 -record(state, {allowedIps = all,
                 disabled = false,
                 listenSocket,
-                protocolModule,
+                protocolModules,
                 ssl = false
                }).
 
@@ -119,7 +119,7 @@ init([Module, LPort, AllowedIps]) ->
             self() ! nextWorker,
             {ok, #state{ssl            = false,
                         listenSocket   = ListenSocket,
-                        protocolModule = Module,
+                        protocolModules = Module,
                         allowedIps     = AllowedIps}};
         {error, Reason} ->
             eLog:log(debug, ?MODULE, init, [LPort, Reason],
@@ -139,7 +139,7 @@ init([Module, LPort, AllowedIps, SSLOptions]) ->
             self() ! nextWorker,
             {ok, #state{ssl            = {true, SSLOptions},
                         listenSocket   = ListenSocket,
-                        protocolModule = Module,
+                        protocolModules = Module,
                         allowedIps     = AllowedIps}};
         {error, Reason} ->
             eLog:log(debug, ?MODULE, init, [LPort, Reason],
@@ -162,38 +162,27 @@ init([Module, LPort, AllowedIps, SSLOptions]) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_call({addModuleAllowed, NewModule}, _From,
-            State = #state{protocolModule = Modules}) when
-      is_atom(NewModule) ->
+            State = #state{protocolModules = Modules}) when
+      is_atom(NewModule), is_list(Modules) ->
     eLog:log(debug, ?MODULE, handle_call, [NewModule],
              "Adding allowed protocol module", ?LINE),
-    NewModules =
-        case Modules of
-            Module when is_atom(Module) ->
-                [NewModule, Module];
-            Modules ->
-                [NewModule | Modules]
-            end,
-    {reply, ok, State#state{protocolModule = lists:usort(NewModules)}};
+    NewModules = [NewModule | Modules],
+    {reply, ok, State#state{protocolModules = lists:usort(NewModules)}};
 
-handle_call({delModuleAllowed, NewModule}, _From,
-            State = #state{protocolModule = Modules}) when
-      is_atom(NewModule) ->
-    eLog:log(debug, ?MODULE, handle_call, [NewModule],
+handle_call({delModuleAllowed, DelModule}, _From,
+            State = #state{protocolModules = Modules}) when
+      is_atom(DelModule), is_list(Modules) ->
+    eLog:log(debug, ?MODULE, handle_call, [DelModule],
              "Deleting allowed protocol module", ?LINE),
-    NewModules =
-        case Modules of
-            Modules when length(Modules) > 1 ->
-                lists:delete(NewModule, Modules);
-            Module  ->
-                Module
-        end,
-    {reply, ok, State#state{protocolModule = NewModules}};
+    NewModules = lists:delete(DelModule, Modules),
+    {reply, ok, State#state{protocolModules = NewModules}};
 
-handle_call({updateModulesAllowed, Modules}, _From, State) when
-      is_list(Modules) ->
+handle_call({updateModulesAllowed, NewModules}, _From,
+            State = #state{protocolModules = Modules}) when
+      is_list(NewModules), is_list(Modules) ->
     eLog:log(debug, ?MODULE, handle_call, [Modules],
              "Updating allowed protocol modules", ?LINE),
-    {reply, ok, State#state{protocolModule = Modules}};
+    {reply, ok, State#state{protocolModules = NewModules}};
 
 handle_call({updateIPAllowed, IPAllowed}, _From, State) when
       is_list(IPAllowed) ->
@@ -213,8 +202,8 @@ handle_call({updateListenPort, Port}, _From,
     updateListenPort(ssl, SSLOptions, Port, State);
 
 handle_call(getConfig, _From, State = #state{allowedIps = AllowedIps,
-                                             protocolModule = Modules}) ->
-    Reply = [{allowedIps, AllowedIps}, {protocolModule, Modules}],
+                                             protocolModules = Modules}) ->
+    Reply = [{allowedIps, AllowedIps}, {protocolModules, Modules}],
     {reply, Reply, State};
 
 handle_call(stop, _From, State) ->
@@ -272,7 +261,7 @@ handle_info(_Info, State) ->
 %% @spec terminate(Reason, State) -> void()
 %% @end
 %%--------------------------------------------------------------------
-terminate(Reason, #state{protocolModule = Module, listenSocket = LSocket}) ->
+terminate(Reason, #state{protocolModules = Module, listenSocket = LSocket}) ->
     eLog:log(debug, ?MODULE, terminate, [Reason, LSocket],
              "Shutting down...", ?LINE, Module),
     (catch gen_tcp:close(LSocket)),
@@ -314,6 +303,6 @@ updateListenPort(Protocol,SSLOptions,Port,State) when is_integer(Port) ->
         Reason ->
             eLog:log(error, ?MODULE, handle_cast, [Reason, Port],
                      "Failed to open port... shutting down.", ?LINE,
-                     State#state.protocolModule),
+                     State#state.protocolModules),
             {stop, normal, State}
     end.
