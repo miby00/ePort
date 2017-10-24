@@ -18,8 +18,7 @@ ePortListener:start_link(Module, Port, AllowedIPs)
 
 Module     %% Name of protocol module, see: example/src/waiter.erl
 Port       %% Port to listen to incoming connections on.
-AllowedIPs %% List of IP-addresses which the listener accepts incoming
-              connections to (optional)
+AllowedIPs %% List of IP-addresses which the listener accepts incoming connections to (optional)
 
 Example:
 
