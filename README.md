@@ -16,10 +16,10 @@ connections (default port 19000)
 ```erlang
 ePortListener:start_link(Module, Port, AllowedIPs)
 
-Module     = Name of protocol module, see: example/src/waiter.erl
-Port       = Port to listen to incoming connections on.
-AllowedIPs = List of IP-addresses which the listener accepts incoming
-                 connections to (optional)
+Module     %% Name of protocol module, see: example/src/waiter.erl
+Port       %% Port to listen to incoming connections on.
+AllowedIPs %% List of IP-addresses which the listener accepts incoming
+              connections to (optional)
 
 Example:
 
@@ -32,9 +32,9 @@ The connecting side starts ePort which connects to a host at a port.
 ```erlang
 ePort:start_link(Module, Host, Port)
 
-Module     = Name of protocol module for client side, see: example/src/philosopher.erl
-Host       = IP address or computer to connect too
-Port       = Port to connect too
+Module    %% Name of protocol module for client side, see: example/src/philosopher.erl
+Host      %% IP address or computer to connect too
+Port      %% Port to connect too
 
 Example:
 
