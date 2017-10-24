@@ -74,3 +74,5 @@ There is a separate README in the example directories which describes the exampl
 It is also possible to setup encrypted communication. To do that the ePorts need to be setup
 with SSL options. This is done by calling ePort:start_link/4 and with a list of SSL options.
 See [Erlang SSL](http://erlang.org/doc/man/ssl.html "Erlang SSL")
+
+See eTodo for an example of how to use SSL.
