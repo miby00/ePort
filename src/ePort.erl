@@ -145,7 +145,7 @@ init([Module, Host, Port, false]) ->
         {ok, Socket} ->
             erlang:send_after(?Timeout, self(), timeout),
             {ok, #state{socket = Socket,
-                        module = handleModule(Socket, Module),
+                        module = handleModule(Socket, Module, tcp),
                         client = true,
                         ssl    = false}};
         Reason ->
@@ -163,7 +163,7 @@ init([Module, Host, Port, {true, SSLOptions}]) ->
         {ok, Socket} ->
             erlang:send_after(?Timeout, self(), timeout),
             {ok, #state{socket = Socket,
-                        module = handleModule(Socket, Module),
+                        module = handleModule(Socket, Module, ssl),
                         client = true,
                         ssl    = {true, SSLOptions}}};
         Reason ->
@@ -510,10 +510,13 @@ handleShutdown(State) ->
     end.
 
 
-handleModule(Socket, {LocalModule, RemoteModule}) ->
+handleModule(Socket, {LocalModule, RemoteModule}, tcp) ->
     doSendPacket(Socket, {desiredModule, RemoteModule}),
     LocalModule;
-handleModule(_Socket, Module) when is_atom(Module) ->
+handleModule(Socket, {LocalModule, RemoteModule}, ssl) ->
+    doSendPacketSSL(Socket, {desiredModule, RemoteModule}),
+    LocalModule;
+handleModule(_Socket, Module_ Type) when is_atom(Module) ->
     Module.
 
 
