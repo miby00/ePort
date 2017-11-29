@@ -516,7 +516,7 @@ handleModule(Socket, {LocalModule, RemoteModule}, tcp) ->
 handleModule(Socket, {LocalModule, RemoteModule}, ssl) ->
     doSendPacketSSL(Socket, {desiredModule, RemoteModule}),
     LocalModule;
-handleModule(_Socket, Module_ Type) when is_atom(Module) ->
+handleModule(_Socket, Module, _Type) when is_atom(Module) ->
     Module.
 
 
