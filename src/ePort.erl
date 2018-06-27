@@ -161,6 +161,10 @@ init([Module, Host, Port, {true, SSLOptions}]) ->
 
     case catch ssl:connect(Host, Port, ?TCPOptions++SSLOptions, 10000) of
         {ok, Socket} ->
+            %% Give some time to get protocol negotiation done before
+            %% we start sending data.
+            timer:sleep(1000),
+
             erlang:send_after(?Timeout, self(), timeout),
             {ok, #state{socket = Socket,
                         module = handleModule(Socket, Module, ssl),
