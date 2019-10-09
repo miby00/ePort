@@ -12,25 +12,25 @@
 
 %% API
 -export([
-	 start_link/3,
-	 start_link/4,
-	 start/3,
-	 start/4,
-	 start_init/4,
-	 start_init/5,
-	 call/3,
-	 call/4,
-	 cast/3,
-	 stop/1]).
+         start_link/3,
+         start_link/4,
+         start/3,
+         start/4,
+         start_init/4,
+         start_init/5,
+         call/3,
+         call/4,
+         cast/3,
+         stop/1]).
 
 %% gen_server callbacks
 -export([
-	 init/1,
-	 handle_call/3,
-	 handle_cast/2,
-	 handle_info/2,
-	 terminate/2,
-	 code_change/3]).
+         init/1,
+         handle_call/3,
+         handle_cast/2,
+         handle_info/2,
+         terminate/2,
+         code_change/3]).
 
 -export([rpcCast/4, rpcCall/5]).
 
@@ -359,7 +359,7 @@ handle_info({tcp, Socket, Data}, State = #state{socket = Socket,
     case handleDesiredModule(Modules, ELPid, Socket, Data) of
         {bad_module, PModule} ->
             eLog:log(error, ?MODULE, handle_info, [PModule],
-		     "Requested module not allowed", ?LINE),
+                     "Requested module not allowed", ?LINE),
             {stop, normal, State};
         Module ->
             inet:setopts(Socket,[{active,once}]),
@@ -384,7 +384,7 @@ handle_info({ssl, Socket, Data}, State = #state{socket = Socket,
     case handleDesiredModule(Modules, ELPid, Socket, Data) of
         {bad_module, PModule} ->
             eLog:log(error, ?MODULE, handle_info, [PModule],
-		     "Requested module not allowed", ?LINE),
+                     "Requested module not allowed", ?LINE),
             {stop, normal, State};
         Module ->
             ssl:setopts(Socket,[{active,once}]),
@@ -601,9 +601,9 @@ handleDesiredModule(Modules, ELPid, Socket, Data) ->
             %% The parsed data is sent into this same function
             %% for further processing.
             handleDesiredModule(Modules,
-				ELPid,
-				Socket,
-				{desiredModule, PModule});
+                                ELPid,
+                                Socket,
+                                {desiredModule, PModule});
         _ ->
             %% This scenario should not happen, but if for some strange
             %% reason it happens anyway we return bad_module and then
