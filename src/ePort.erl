@@ -11,22 +11,26 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/3,
-         start_link/4,
-         start/3,
-         start/4,
-         call/3,
-         call/4,
-         cast/3,
-         stop/1]).
+-export([
+	 start_link/3,
+	 start_link/4,
+	 start/3,
+	 start/4,
+	 start_init/4,
+	 start_init/5,
+	 call/3,
+	 call/4,
+	 cast/3,
+	 stop/1]).
 
 %% gen_server callbacks
--export([init/1,
-         handle_call/3,
-         handle_cast/2,
-         handle_info/2,
-         terminate/2,
-         code_change/3]).
+-export([
+	 init/1,
+	 handle_call/3,
+	 handle_cast/2,
+	 handle_info/2,
+	 terminate/2,
+	 code_change/3]).
 
 -export([rpcCast/4, rpcCall/5]).
 
@@ -48,6 +52,9 @@
 
 -import(eLog, [log/7]).
 
+-export_type([init_function/0]).
+
+-type init_function() :: fun((pid()) -> term()).
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -77,6 +84,58 @@ start(Module, Host, Port) ->
 
 start(Module, Host, Port, SSLOptions) ->
     gen_server:start(?MODULE, [Module, Host, Port, {true, SSLOptions}], []).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Starts the server and calls an initializing function.
+%% @end
+%%--------------------------------------------------------------------
+-spec start_init(Module, Host, Port, InitFun)
+                -> {ok, Pid} | ignore | {error, Error}
+                       when
+      Module :: module(),
+      Host :: inet:socket_address() | inet:hostname(),
+      Port :: inet:port_number(),
+      InitFun :: init_function(),
+      Pid :: pid(),
+      Error :: term().
+start_init(Module, Host, Port, InitFun) ->
+    start_init(Module, Host, Port, false, InitFun).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Starts the server and calls an initializing function.
+%% @end
+%%--------------------------------------------------------------------
+-spec start_init(Module, Host, Port, SSLOptions, InitFun)
+                -> {ok, Pid} | ignore | {error, Error}
+                       when
+      Module :: module(),
+      Host :: inet:socket_address() | inet:hostname(),
+      Port :: inet:port_number(),
+      SSLOptions :: [ssl:tls_client_option()],
+      InitFun :: init_function(),
+      Pid :: pid(),
+      Error :: term().
+start_init(Module, Host, Port, SSLOptions, InitFun) ->
+    Result =
+        case SSLOptions =:= false of
+            true -> start(Module, Host, Port);
+            false -> start(Module, Host, Port, SSLOptions)
+        end,
+    case Result of
+        {ok, Pid} ->
+            try
+                _ = InitFun(Pid),
+                Result
+            catch
+                Class:Reason ->
+                    stop(Pid),
+                    {error, {init_failed, {Class, Reason}}}
+            end;
+        _ ->
+            Result
+    end.
 
 call(Pid, Function, Args) ->
     case catch gen_server:call(Pid, {call, Function, Args}) of
@@ -296,11 +355,11 @@ handle_info({ssl, Socket, ?Pong}, State = #state{socket   = Socket,
 handle_info({tcp, Socket, Data}, State = #state{socket = Socket,
                                                 elPid = ELPid,
                                                 module = Modules}) when
-                   is_list(Modules) ->
+      is_list(Modules) ->
     case handleDesiredModule(Modules, ELPid, Socket, Data) of
         {bad_module, PModule} ->
             eLog:log(error, ?MODULE, handle_info, [PModule],
-                "Requested module not allowed", ?LINE),
+		     "Requested module not allowed", ?LINE),
             {stop, normal, State};
         Module ->
             inet:setopts(Socket,[{active,once}]),
@@ -321,11 +380,11 @@ handle_info({tcp, Socket, Data}, State = #state{socket = Socket,
 handle_info({ssl, Socket, Data}, State = #state{socket = Socket,
                                                 elPid = ELPid,
                                                 module = Modules}) when
-                   is_list(Modules) ->
+      is_list(Modules) ->
     case handleDesiredModule(Modules, ELPid, Socket, Data) of
         {bad_module, PModule} ->
             eLog:log(error, ?MODULE, handle_info, [PModule],
-                "Requested module not allowed", ?LINE),
+		     "Requested module not allowed", ?LINE),
             {stop, normal, State};
         Module ->
             ssl:setopts(Socket,[{active,once}]),
@@ -542,9 +601,9 @@ handleDesiredModule(Modules, ELPid, Socket, Data) ->
             %% The parsed data is sent into this same function
             %% for further processing.
             handleDesiredModule(Modules,
-                               ELPid,
-                               Socket,
-                               {desiredModule, PModule});
+				ELPid,
+				Socket,
+				{desiredModule, PModule});
         _ ->
             %% This scenario should not happen, but if for some strange
             %% reason it happens anyway we return bad_module and then
