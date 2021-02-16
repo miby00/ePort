@@ -41,19 +41,21 @@ doAccept(LPid, ListenSocket, false) ->
     LPid ! nextWorker;
 doAccept(LPid, ListenSocket, {true, SSLOptions}) ->
     case ssl:transport_accept(ListenSocket) of
-        {ok, Socket} ->
-            case catch ssl:ssl_accept(Socket) of
-                ok ->
+        {ok, TransportSocket} ->
+            case catch ssl:handshake(TransportSocket) of
+                {ok, Socket} ->
                     ListenConfig = ePortListener:getConfig(LPid),
                     AllowedIps = proplists:get_value(allowedIps,ListenConfig),
                     Module = proplists:get_value(protocolModules,ListenConfig),
                     startPort(LPid, Module, Socket, AllowedIps,
                               {true, SSLOptions});
-                _RetValue ->
+                RetValue ->
+                    eLog:log(error, ?MODULE, doAccept, [RetValue],
+                             "Handshake error", ?LINE),
                     ok
             end;
         Reason ->
-            eLog:log(debug, ?MODULE, doAccept, [Reason],
+            eLog:log(error, ?MODULE, doAccept, [Reason],
                      "Received error from accept", ?LINE),
             Reason
     end,
