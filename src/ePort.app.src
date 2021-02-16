@@ -5,16 +5,20 @@
 %%%
 %%% @end
 %%% Created : 16 Jun 2012 by Mikael Bylund <mikael.bylund@gmail.com>
+%%%
+%%% Changes : 2012-09-20 AnHe New version 1.0.0.1
+%%%           2014-05-27 PeBe New version 8.5.0.0
 %%%-------------------------------------------------------------------
-{application, 'ePort',
+{application, 'eport',
  [{description, "EPort an RPC over socket server."},
-  {vsn, "1.0.0"},
+  {vsn, "2.0.0"},
   {modules, [
 	     ePort,
-	     ePortListener
-	     ]},
+	     ePortListener,
+	     eLog
+	    ]},
   {maxT, infinity},
-  {registered, []},
+  {registered, [eLog]},
   {applications, [kernel, stdlib]},
   {included_applications, []},
   {env, []}
