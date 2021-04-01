@@ -11,8 +11,7 @@
 -behaviour(gen_server).
 
 %% API
--export([
-         start_link/3,
+-export([start_link/3,
          start_link/4,
          start/3,
          start/4,
@@ -21,25 +20,25 @@
          call/3,
          call/4,
          cast/3,
+         cast/4,
          stop/1]).
 
 %% gen_server callbacks
--export([
-         init/1,
+-export([init/1,
          handle_call/3,
          handle_cast/2,
          handle_info/2,
          terminate/2,
          code_change/3]).
 
--export([rpcCast/4, rpcCall/5]).
+-export([rpcCast/4, rpcCall/5, startWorker/2]).
 
 -define(SERVER,  ?MODULE).
 -define(Timeout, 30000).
 -define(TCPOptions, [{packet,4}, {active,once}, binary]).
 
--define(Ping,    <<131,100,0,4,112,105,110,103>>).
--define(Pong,    <<131,100,0,4,112,111,110,103>>).
+-define(Ping, <<131,100,0,4,112,105,110,103>>). %% term_to_binary(ping)
+-define(Pong, <<131,100,0,4,112,111,110,103>>). %% term_to_binary(pong)
 
 -record(state, {client = false,
                 elPid,
@@ -47,14 +46,18 @@
                 shutting_down = false,
                 socket,
                 ssl = false,
+                workers = #{},
                 timerRef
                }).
 
--import(eLog, [log/7]).
+-define(log(Level, Args, ErrorDesc), ?log(Level, Args, ErrorDesc, #state{})).
+-define(log(Level, Args, ErrorDesc, State),
+        log(Level, ?FUNCTION_NAME, Args, ErrorDesc, ?LINE, State)).
 
 -export_type([init_function/0]).
 
 -type init_function() :: fun((pid()) -> term()).
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -147,8 +150,18 @@ call(Pid, Function, Args) ->
             Reply
     end.
 
-call(Pid, Function, Args, Timeout) ->
-    case catch gen_server:call(Pid, {call, Function, Args}, Timeout) of
+call(Pid, Function, Args, Timeout) when is_integer(Timeout) ->
+    call(Pid, Function, Args, [{timeout, Timeout}]);
+call(Pid, Function, Args, Options) ->
+    Timeout   = proplists:get_value(timeout,   Options, 5000),
+    ChannelId = proplists:get_value(channelId, Options, undefined),
+    Message   = case ChannelId of
+                    undefined ->
+                        {call, Function, Args};
+                    ChannelId ->
+                        {call, Function, Args, ChannelId}
+                end,
+    case catch gen_server:call(Pid, Message, Timeout) of
         {'EXIT', {timeout, _Reason}} ->
             {error, timeout};
         {'EXIT', _} ->
@@ -159,6 +172,15 @@ call(Pid, Function, Args, Timeout) ->
 
 cast(Pid, Function, Args) ->
     gen_server:cast(Pid, {cast, Function, Args}).
+
+cast(Pid, Function, Args, Options) ->
+    ChannelId = proplists:get_value(channelId, Options, undefined),
+    case ChannelId of
+        undefined ->
+            gen_server:cast(Pid, {cast, Function, Args});
+        ChannelId ->
+            gen_server:cast(Pid, {cast, Function, Args, ChannelId})
+    end.
 
 stop(Pid) ->
     gen_server:cast(Pid, {stop, self()}).
@@ -203,14 +225,14 @@ init([Module, Host, Port, false]) ->
     case catch gen_tcp:connect(Host, Port, ?TCPOptions, 10000) of
         {ok, Socket} ->
             erlang:send_after(?Timeout, self(), timeout),
-            {ok, #state{socket = Socket,
-                        module = handleModule(Socket, Module, tcp),
-                        client = true,
-                        ssl    = false}};
+            BaseState =
+                #state{socket = Socket,
+                       client = true,
+                       ssl    = false},
+            {ok, handleModule(Module, BaseState)};
         Reason ->
-            log(debug, ?MODULE, init, [Reason, self()],
-                "Shutting down, failed to establish connection.",
-                ?LINE, Module),
+            ?log(debug, [Reason, self()],
+                 "Shutting down, failed to establish connection."),
             {stop, normal}
     end;
 init([Module, Host, Port, {true, SSLOptions}]) ->
@@ -225,14 +247,14 @@ init([Module, Host, Port, {true, SSLOptions}]) ->
             timer:sleep(1000),
 
             erlang:send_after(?Timeout, self(), timeout),
-            {ok, #state{socket = Socket,
-                        module = handleModule(Socket, Module, ssl),
-                        client = true,
-                        ssl    = {true, SSLOptions}}};
+            BaseState =
+                #state{socket = Socket,
+                       client = true,
+                       ssl    = {true, SSLOptions}},
+            {ok, handleModule(Module, BaseState)};
         Reason ->
-            log(debug, ?MODULE, init, [Reason, self()],
-                "Shutting down, failed to establish connection.",
-                ?LINE, Module),
+            ?log(debug, [Reason, self()],
+                 "Shutting down, failed to establish connection."),
             {stop, normal}
     end.
 
@@ -252,19 +274,12 @@ init([Module, Host, Port, {true, SSLOptions}]) ->
 %%--------------------------------------------------------------------
 handle_call(_Msg, _From, State = #state{shutting_down = true}) ->
     handleShutdown(State);
-handle_call({call, Function, Args}, From, State = #state{socket = Socket,
-                                                         module = Module,
-                                                         ssl    = false}) ->
-    log(debug, ?MODULE, handle_call, [Function, self()],
-        "Send call.", ?LINE, Module),
-    doSendPacket(Socket, {rpc, Function, Args, From}),
-    {noreply, State};
-handle_call({call, Function, Args}, From, State = #state{socket = Socket,
-                                                         module = Module}) ->
-    log(debug, ?MODULE, handle_call, [Function, self()],
-        "Send call.", ?LINE, Module),
-    doSendPacketSSL(Socket, {rpc, Function, Args, From}),
-    {noreply, State};
+handle_call({call, Function, Args}, From, State) ->
+    ?log(debug, [Function, self()], "Send call.", State),
+    sendPacket({rpc, Function, Args, From}, State);
+handle_call({call, Function, Args, Channel}, From, State) ->
+    ?log(debug, [Function, Channel, self()], "Send call.", State),
+    sendPacket({rpcChan, Function, Args, From, Channel}, State);
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
@@ -281,22 +296,15 @@ handle_call(_Request, _From, State) ->
 %%--------------------------------------------------------------------
 handle_cast(_Msg, State = #state{shutting_down = true}) ->
     handleShutdown(State);
-handle_cast({cast, Function, Args}, State = #state{socket = Socket,
-                                                   module = Module,
-                                                   ssl    = false}) ->
-    log(debug, ?MODULE, handle_cast, [Function, self()],
-        "Send cast.", ?LINE, Module),
-    doSendPacket(Socket, {rpc, Function, Args}),
-    {noreply, State};
-handle_cast({cast, Function, Args}, State = #state{socket = Socket,
-                                                   module = Module}) ->
-    log(debug, ?MODULE, handle_cast, [Function, self()],
-        "Send cast.", ?LINE, Module),
-    doSendPacketSSL(Socket, {rpc, Function, Args}),
-    {noreply, State};
-handle_cast({stop, Offender}, State = #state{module = Module}) ->
-    log(debug, ?MODULE, stop, [State, self(), Offender],
-        "Shutting down, stop received.", ?LINE, Module),
+handle_cast({cast, Function, Args}, State) ->
+    ?log(debug, [Function, self()], "Send cast.", State),
+    sendPacket({rpc, Function, Args}, State);
+handle_cast({cast, Function, Args, Channel}, State) ->
+    ?log(debug, [Function, self()], "Send cast.", State),
+    sendPacket({rpcChan, Function, Args, Channel}, State);
+handle_cast({stop, Offender}, State) ->
+    ?log(debug, [State, self(), Offender],
+         "Shutting down, stop received.", State),
     handleShutdown(State#state{shutting_down = true});
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -311,46 +319,20 @@ handle_cast(_Msg, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_info({rpc_result, Result, From}, State = #state{socket = Socket,
-                                                       ssl    = false}) ->
-    doSendPacket(Socket, {rpc_result, Result, From}),
-    {noreply, State};
-handle_info({rpc_result, Result, From}, State = #state{socket = Socket}) ->
-    doSendPacketSSL(Socket, {rpc_result, Result, From}),
-    {noreply, State};
+handle_info({rpc_result, Result, From}, State) ->
+    sendPacket({rpc_result, Result, From}, State);
 handle_info(_Msg, State = #state{shutting_down = true}) ->
     handleShutdown(State);
-handle_info({tcp, Socket, ?Ping}, State = #state{socket = Socket,
-                                                 ssl    = false}) ->
-    doSendPacket(Socket, pong),
-    inet:setopts(Socket,[{active,once}]),
-    {noreply, State};
-handle_info({ssl, Socket, ?Ping}, State = #state{socket = Socket}) ->
-    doSendPacketSSL(Socket, pong),
-    ssl:setopts(Socket,[{active,once}]),
-    {noreply, State};
-handle_info({tcp, Socket, ?Pong}, State = #state{socket   = Socket,
-                                                 timerRef = Ref,
-                                                 ssl      = false,
-                                                 module   = Module}) ->
-
-    log(debug, ?MODULE, handle_info, [Socket],
-        "Received pong from socket...", ?LINE, Module),
-
+handle_info({Protocol, Socket, ?Ping}, #state{socket = Socket} = State)
+  when Protocol =:= tcp; Protocol =:= ssl ->
+    reactivateSocket(State),
+    sendPacket(pong, State);
+handle_info({Protocol, Socket, ?Pong}, #state{socket = Socket} = State)
+  when Protocol =:= tcp; Protocol =:= ssl ->
+    #state{timerRef = Ref} = State,
+    ?log(debug, [Socket], "Received pong from socket...", State),
     cancelTimer(Ref),
-
-    inet:setopts(Socket,[{active,once}]),
-    {noreply, State#state{timerRef = undefined}};
-handle_info({ssl, Socket, ?Pong}, State = #state{socket   = Socket,
-                                                 timerRef = Ref,
-                                                 module   = Module}) ->
-
-    log(debug, ?MODULE, handle_info, [Socket],
-        "Received pong from socket...", ?LINE, Module),
-
-    cancelTimer(Ref),
-
-    ssl:setopts(Socket,[{active,once}]),
+    reactivateSocket(State),
     {noreply, State#state{timerRef = undefined}};
 handle_info({tcp, Socket, Data}, State = #state{socket = Socket,
                                                 elPid = ELPid,
@@ -358,24 +340,25 @@ handle_info({tcp, Socket, Data}, State = #state{socket = Socket,
       is_list(Modules) ->
     case handleDesiredModule(Modules, ELPid, Socket, Data) of
         {bad_module, PModule} ->
-            eLog:log(error, ?MODULE, handle_info, [PModule],
-                     "Requested module not allowed", ?LINE),
+            ?log(error, [PModule], "Requested module not allowed", State),
             {stop, normal, State};
         Module ->
-            inet:setopts(Socket,[{active,once}]),
+            reactivateSocket(State),
             {noreply, State#state{module = Module}}
     end;
 handle_info({tcp, Socket, Data}, State = #state{socket = Socket,
                                                 module = Module}) ->
-    case handlePacket(self(), Module, Data) of
+    case handlePacket(self(), Data, State) of
         {desiredModule, BadModule} when BadModule /= Module ->
-            eLog:log(error, ?MODULE, handle_info, [BadModule],
-                     "Requested module not same as supplied module",
-                     ?LINE),
+            ?log(error, [BadModule],
+                 "Requested module not same as supplied module", State),
             {stop, normal, State};
-        _Else ->
-            inet:setopts(Socket,[{active,once}]),
-            {noreply, State}
+        {desiredModule, Module} ->
+            reactivateSocket(State),
+            {noreply, State};
+        {ok, State2} ->
+            reactivateSocket(State),
+            {noreply, State2}
     end;
 handle_info({ssl, Socket, Data}, State = #state{socket = Socket,
                                                 elPid = ELPid,
@@ -383,78 +366,55 @@ handle_info({ssl, Socket, Data}, State = #state{socket = Socket,
       is_list(Modules) ->
     case handleDesiredModule(Modules, ELPid, Socket, Data) of
         {bad_module, PModule} ->
-            eLog:log(error, ?MODULE, handle_info, [PModule],
-                     "Requested module not allowed", ?LINE),
+            ?log(error, [PModule], "Requested module not allowed", State),
             {stop, normal, State};
         Module ->
-            ssl:setopts(Socket,[{active,once}]),
+            reactivateSocket(State),
             {noreply, State#state{module = Module}}
     end;
 handle_info({ssl, Socket, Data}, State = #state{socket = Socket,
                                                 module = Module}) ->
-    case handlePacket(self(), Module, Data) of
+    case handlePacket(self(), Data, State) of
         {desiredModule, BadModule} when BadModule /= Module ->
-            eLog:log(error, ?MODULE, handle_info, [BadModule],
-                     "Requested module not same as supplied module",
-                     ?LINE),
+            ?log(error, [BadModule],
+                 "Requested module not same as supplied module",
+                 State),
             {stop, normal, State};
-        _Else ->
-            ssl:setopts(Socket,[{active,once}]),
-            {noreply, State}
+        {desiredModule, Module} ->
+            reactivateSocket(State),
+            {noreply, State};
+        {ok, State2} ->
+            reactivateSocket(State),
+            {noreply, State2}
     end;
-handle_info({tcp_closed, Socket}, State = #state{socket = Socket,
-                                                 module = Module}) ->
-    log(debug, ?MODULE, handle_info, [State, self()],
-        "Shutting down...received tcp_closed.", ?LINE, Module),
+handle_info({Closed, Socket}, State = #state{socket = Socket})
+  when Closed =:= tcp_closed; Closed =:= ssl_closed ->
+    ?log(debug, [State, self()], "Shutting down...received tcp_closed.", State),
     {stop, normal, State};
-handle_info({ssl_closed, Socket}, State = #state{socket = Socket,
-                                                 module = Module}) ->
-    log(debug, ?MODULE, handle_info, [State, self()],
-        "Shutting down...received tcp_closed.", ?LINE, Module),
-    {stop, normal, State};
-handle_info(timeout, State = #state{socket = Socket,
-                                    client = true,
-                                    ssl    = false,
-                                    module = Module}) ->
-    doSendPacket(Socket, ping),
-
+handle_info(timeout, State = #state{socket = Socket, client = true}) ->
     %% If we havent received a pong signal withing 60 sek, close connection.
     Ref = erlang:send_after(60000, self(), lostConnection),
 
     erlang:send_after(?Timeout, self(), timeout),
 
-    log(debug, ?MODULE, handle_info, [Socket],
-        "Sending ping to socket...", ?LINE, Module),
+    ?log(debug, [Socket], "Sending ping to socket...", State),
 
-    {noreply, State#state{timerRef = Ref}};
-handle_info(timeout, State = #state{socket = Socket,
-                                    client = true,
-                                    module = Module}) ->
-    doSendPacketSSL(Socket, ping),
-
-    %% If we havent received a pong signal withing 60 sek, close connection.
-    Ref = erlang:send_after(60000, self(), lostConnection),
-
-    erlang:send_after(?Timeout, self(), timeout),
-
-    log(debug, ?MODULE, handle_info, [Socket],
-        "Sending ping to socket...", ?LINE, Module),
-
-    {noreply, State#state{timerRef = Ref}};
+    sendPacket(ping, State#state{timerRef = Ref});
 handle_info(timeout, State = #state{client = false}) ->
     {noreply, State};
-handle_info(lostConnection, State = #state{module = Module}) ->
-    log(error, ?MODULE, handle_info, [State, self()],
-        "Lost connection signal received, shutting down...", ?LINE, Module),
+handle_info(lostConnection, State) ->
+    ?log(error, [State, self()],
+         "Lost connection signal received, shutting down...", State),
     {stop, normal, State};
 handle_info({'DOWN', _MonitorRef,process,_Pid,_}, State) ->
     %% No action needed since monitors are removed automatically upon
     %% process termination.
     {noreply, State};
+handle_info({workerShuttingDown, Channel}, State = #state{workers = Workers}) ->
+    State2 = State#state{workers = maps:remove(Channel, Workers)},
+    {noreply, State2};
 handle_info(_Info, State) ->
     {noreply, State}.
-
-
 
 %%--------------------------------------------------------------------
 %% @private
@@ -467,39 +427,19 @@ handle_info(_Info, State) ->
 %% @spec terminate(Reason, State) -> void()
 %% @end
 %%--------------------------------------------------------------------
-terminate(Reason, #state{socket = undefined,
-                         module = Module}) ->
-    log(debug, ?MODULE, terminate, [Reason, self()],
-        "Shutting down...", ?LINE, Module),
+terminate(Reason, State = #state{socket = undefined}) ->
+    ?log(debug, [Reason, self()], "Shutting down...", State),
     ok;
-terminate(Reason, #state{client = true,
-                         module = Module,
-                         socket = Socket,
-                         ssl    = SSL}) ->
-    log(debug, ?MODULE, terminate, [Reason, Socket, self()],
-        "Shutting down...", ?LINE, Module),
-    case SSL of
-        false ->
-            (catch gen_tcp:close(Socket));
-        _ ->
-            (catch ssl:close(Socket))
-    end,
+terminate(Reason, State = #state{client = true, socket = Socket}) ->
+    ?log(debug, [Reason, Socket, self()], "Shutting down...", State),
+    closeSocket(State),
     ok;
-terminate(Reason, #state{client = false,
-                         elPid  = ELPid,
-                         module = Module,
-                         socket = Socket,
-                         ssl    = SSL}) ->
+terminate(Reason, State = #state{client = false, socket = Socket}) ->
+    #state{elPid = ELPid, module = Module} = State,
     %% Tell server protocol implementation that client disconnected.
     (catch Module:clientDisconnected(self(), ELPid)),
-    log(debug, ?MODULE, terminate, [Reason, Socket, self()],
-        "Shutting down...", ?LINE, Module),
-    case SSL of
-        false ->
-            (catch gen_tcp:close(Socket));
-        _ ->
-            (catch ssl:close(Socket))
-    end,
+    ?log(debug, [Reason, Socket, self()], "Shutting down...", State),
+    closeSocket(State),
     ok.
 
 %%--------------------------------------------------------------------
@@ -516,18 +456,29 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-handlePacket(Pid, Module, Data) ->
+handlePacket(Pid, Data, State = #state{module = Module}) ->
     case binary_to_term(Data) of
         {rpc, Function, Args, From} when is_atom(Function) ->
-            spawn_monitor(?MODULE,rpcCall,[Pid,From,Module,Function,Args]);
+            spawn_monitor(?MODULE,rpcCall,[Pid,From,Module,Function,Args]),
+            {ok, State};
+        {rpcChan, Function, Args, From, Channel} when is_atom(Function) ->
+            {WorkerPid, State2} = getWorkerPid(Channel, State),
+            WorkerPid!{rpc, Pid, Module, Function, Args, From},
+            {ok, State2};
         {rpc, Function, Args} when is_atom(Function) ->
-            spawn_monitor(?MODULE,rpcCast,[Pid,Module,Function,Args]);
+            spawn_monitor(?MODULE,rpcCast,[Pid,Module,Function,Args]),
+            {ok, State};
+        {rpcChan, Function, Args, Channel} when is_atom(Function) ->
+            {WorkerPid, State2} = getWorkerPid(Channel, State),
+            WorkerPid!{rpc, Pid, Module, Function, Args},
+            {ok, State2};
         {rpc_result, Result, From} ->
-            gen_server:reply(From, Result);
+            gen_server:reply(From, Result),
+            {ok, State};
         {desiredModule, ProtocolModule} ->
             {desiredModule, ProtocolModule};
         _ ->
-            ok
+            {ok, State}
     end.
 
 rpcCall(Pid, From, Module, Function, Args) ->
@@ -537,8 +488,8 @@ rpcCall(Pid, From, Module, Function, Args) ->
                 "rpc call crashed.", ?LINE, Module),
             {error, {noCallbackImplemented, Reason}};
         Result ->
-            log(debug, ?MODULE, rpcCall, [Result, self()],
-                "rpc call returns...", ?LINE, Module),
+            log(debug, ?MODULE, rpcCall, [self()],
+                "rpc call returned...", ?LINE, Module),
             Pid ! {rpc_result, Result, From}
     end.
 
@@ -549,16 +500,33 @@ rpcCast(Pid, Module, Function, Args) ->
                 "rpc cast crashed.", ?LINE, Module),
             {error, {noCallbackImplemented, Reason}};
         Result ->
-            log(debug, ?MODULE, rpcCast, [Result, self()],
-                "rpc cast returns...", ?LINE, Module),
+            log(debug, ?MODULE, rpcCast, [self()],
+                "rpc cast returned...", ?LINE, Module),
             Result
     end.
 
-doSendPacket(Socket, Term) ->
-    ok = gen_tcp:send(Socket, term_to_binary(Term)).
+reactivateSocket(#state{socket = Socket, ssl = false}) ->
+    inet:setopts(Socket, [{active, once}]);
+reactivateSocket(#state{socket = Socket}) ->
+    ssl:setopts(Socket, [{active, once}]).
 
-doSendPacketSSL(Socket, Term) ->
-    ok = ssl:send(Socket, term_to_binary(Term)).
+sendPacket(Term, #state{socket = Socket, ssl = SSL} = State) ->
+    SendFun =
+        case SSL =:= false of
+            true -> fun gen_tcp:send/2;
+            false -> fun ssl:send/2
+        end,
+    case ok =:= SendFun(Socket, term_to_binary(Term)) of
+        true -> {noreply, State};
+        false ->
+            ?log(error, [self(), State], "send packet failed", State),
+            {stop, normal, State}
+    end.
+
+closeSocket(#state{socket = Socket, ssl = false}) ->
+    catch gen_tcp:close(Socket);
+closeSocket(#state{socket = Socket}) ->
+    catch ssl:close(Socket).
 
 cancelTimer(undefined) ->
     ok;
@@ -573,15 +541,11 @@ handleShutdown(State) ->
     end.
 
 
-handleModule(Socket, {LocalModule, RemoteModule}, tcp) ->
-    doSendPacket(Socket, {desiredModule, RemoteModule}),
-    LocalModule;
-handleModule(Socket, {LocalModule, RemoteModule}, ssl) ->
-    doSendPacketSSL(Socket, {desiredModule, RemoteModule}),
-    LocalModule;
-handleModule(_Socket, Module, _Type) when is_atom(Module) ->
-    Module.
-
+handleModule({LocalModule, RemoteModule}, State) ->
+    sendPacket({desiredModule, RemoteModule}, State),
+    State#state{module = LocalModule};
+handleModule(Module, State) when is_atom(Module) ->
+    State#state{module = Module}.
 
 handleDesiredModule(Modules, ELPid, Socket, {desiredModule, PModule}) ->
     case lists:member(PModule, Modules) of
@@ -596,7 +560,7 @@ handleDesiredModule(Modules, ELPid, Socket, {desiredModule, PModule}) ->
             {bad_module, PModule}
     end;
 handleDesiredModule(Modules, ELPid, Socket, Data) ->
-    case handlePacket(self(), Modules, Data) of
+    case catch binary_to_term(Data) of
         {desiredModule, PModule} when is_atom(PModule) ->
             %% The parsed data is sent into this same function
             %% for further processing.
@@ -610,3 +574,56 @@ handleDesiredModule(Modules, ELPid, Socket, Data) ->
             %% the connection will be closed.
             {bad_module, undefined}
     end.
+
+getWorkerPid(Channel, State = #state{workers = Workers}) ->
+    case maps:get(Channel, Workers, undefined) of
+        undefined ->
+            Pid = spawn(?MODULE, startWorker, [self(), Channel]),
+            {Pid, State#state{workers = Workers#{Channel => Pid}}};
+        Pid ->
+            case is_process_alive(Pid) of
+                true ->
+                    {Pid, State};
+                false ->
+                    Pid2 = spawn(?MODULE, startWorker, [self(), Channel]),
+                    {Pid2, State#state{workers = Workers#{Channel => Pid2}}}
+            end
+    end.
+
+startWorker(Pid, Channel) ->
+    monitor(process, Pid),
+    worker(Pid, Channel).
+
+worker(Parent, Channel) ->
+    receive
+        {rpc, Pid, Module, Function, Args, From} ->
+            rpcCall(Pid, From, Module, Function, Args),
+            worker(Parent, Channel);
+        {rpc, Pid, Module, Function, Args} ->
+            rpcCast(Pid, Module, Function, Args),
+            worker(Parent, Channel);
+        {'DOWN', _MonitorRef,process,_Pid,_} ->
+            log(debug, ?MODULE, worker, [Parent, Channel],
+                "Shutting down, received down from parent.",
+                ?LINE, undefined),
+            Parent!{workerShuttingDown, Channel},
+            ok;
+        stop ->
+            Parent!{workerShuttingDown, Channel},
+            ok;
+        _Unknown ->
+            worker(Parent, Channel)
+    after 2 * 3600 * 1000 ->
+            log(debug, ?MODULE, worker, [Parent, Channel],
+                "Shutting down, inactive for 2 hours.",
+                ?LINE, undefined),
+            Parent!{workerShuttingDown, Channel},
+            ok
+    end.
+
+log(LogLevel, Function, Args, ErrorDesc, LineNumber, State) ->
+    #state{module = Module} = State,
+    log(LogLevel, ?MODULE, Function, Args, ErrorDesc, LineNumber, Module).
+
+log(LogLevel, Module, Function, Args, ErrorDesc, LineNumber, ProtModule) ->
+    eLog:log(LogLevel, Module, Function, Args, ErrorDesc, LineNumber, ProtModule).

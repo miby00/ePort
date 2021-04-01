@@ -92,7 +92,7 @@ enable(Pid) ->
     gen_server:cast(Pid, enable).
 
 stop(Pid) ->
-    gen_server:call(Pid, stop, ?Timeout).
+    gen_server:stop(Pid).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -206,8 +206,6 @@ handle_call(getConfig, _From, State = #state{allowedIps = AllowedIps,
     Reply = [{allowedIps, AllowedIps}, {protocolModules, Modules}],
     {reply, Reply, State};
 
-handle_call(stop, _From, State) ->
-    {stop, normal, ok, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
