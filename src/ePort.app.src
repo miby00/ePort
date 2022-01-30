@@ -9,7 +9,7 @@
 %%% Changes : 2012-09-20 AnHe New version 1.0.0.1
 %%%           2014-05-27 PeBe New version 8.5.0.0
 %%%-------------------------------------------------------------------
-{application, 'eport',
+{application, 'ePort',
  [{description, "EPort an RPC over socket server."},
   {vsn, "2.0.0"},
   {modules, [
