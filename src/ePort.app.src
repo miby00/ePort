@@ -14,12 +14,11 @@
   {vsn, "2.0.0"},
   {modules, [
 	     ePort,
-	     ePortListener,
-	     eLog
+	     ePortListener
 	    ]},
   {maxT, infinity},
   {registered, []},
-  {applications, [kernel, stdlib]},
+  {applications, [kernel, stdlib, eLog]},
   {included_applications, []},
   {env, []}
  ]
