@@ -37,8 +37,8 @@
 -define(Timeout, 30000).
 -define(TCPOptions, [{packet,4}, {active,once}, binary]).
 
--define(Ping, <<131,100,0,4,112,105,110,103>>). %% term_to_binary(ping)
--define(Pong, <<131,100,0,4,112,111,110,103>>). %% term_to_binary(pong)
+-define(Ping, <<131,100,0,4,112,105,110,103>>). %% term_to_binary(ping, [{minor_version, 1}])
+-define(Pong, <<131,100,0,4,112,111,110,103>>). %% term_to_binary(pong),[{minor_version, 1}])
 
 -record(state, {client = false,
                 elPid,
@@ -516,7 +516,7 @@ sendPacket(Term, #state{socket = Socket, ssl = SSL} = State) ->
             true -> fun gen_tcp:send/2;
             false -> fun ssl:send/2
         end,
-    case ok =:= SendFun(Socket, term_to_binary(Term)) of
+    case ok =:= SendFun(Socket, term_to_binary(Term, [{minor_version, 1}])) of
         true -> {noreply, State};
         false ->
             ?log(error, [self(), State], "send packet failed", State),
