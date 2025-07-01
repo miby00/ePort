@@ -38,7 +38,7 @@
 -define(TCPOptions, [{packet,4}, {active,once}, binary]).
 
 -define(Ping, <<131,100,0,4,112,105,110,103>>). %% term_to_binary(ping, [{minor_version, 1}])
--define(Pong, <<131,100,0,4,112,111,110,103>>). %% term_to_binary(pong),[{minor_version, 1}])
+-define(Pong, <<131,100,0,4,112,111,110,103>>). %% term_to_binary(pong, [{minor_version, 1}])
 
 -record(state, {client = false,
                 elPid,
